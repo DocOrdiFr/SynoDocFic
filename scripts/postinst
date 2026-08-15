@@ -1,0 +1,13 @@
+#!/bin/sh
+
+PACKAGE="synobatchrenamer"
+INSTALL_DIR="/var/packages/${PACKAGE}/target"
+WEBMAN_DIR="/usr/syno/www/3rdparty/${PACKAGE}"
+
+mkdir -p "${INSTALL_DIR}/var" "${INSTALL_DIR}/logs"
+
+# Enregistrer l'UI aupres du webman DSM (rend /webman/3rdparty/synobatchrenamer/ accessible)
+rm -rf "${WEBMAN_DIR}"
+ln -s "${INSTALL_DIR}/ui" "${WEBMAN_DIR}"
+
+exit 0

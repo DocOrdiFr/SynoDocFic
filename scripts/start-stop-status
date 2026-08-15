@@ -1,0 +1,112 @@
+#!/bin/sh
+
+PACKAGE="synobatchrenamer"
+DNAME="SynoBatchRenamer"
+INSTALL_DIR="/var/packages/${PACKAGE}/target"
+APP_DIR="${INSTALL_DIR}/app"
+VAR_DIR="${INSTALL_DIR}/var"
+PID_FILE="${VAR_DIR}/${PACKAGE}.pid"
+LOG_FILE="${INSTALL_DIR}/logs/service.log"
+SERVICE_PORT="8765"
+SERVICE_USER="sc-synobatchrenamer"
+
+find_python3() {
+  for p in /usr/local/bin/python3 /usr/bin/python3 /opt/bin/python3; do
+    [ -x "${p}" ] && echo "${p}" && return 0
+  done
+  PYPATH=$(command -v python3 2>/dev/null)
+  [ -n "${PYPATH}" ] && echo "${PYPATH}" && return 0
+  return 1
+}
+
+start_daemon() {
+  mkdir -p "${VAR_DIR}" "${INSTALL_DIR}/logs"
+
+  if [ -f "${PID_FILE}" ] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
+    echo "${DNAME} is already running"
+    return 0
+  fi
+
+  PYTHON3=$(find_python3)
+  if [ -z "${PYTHON3}" ]; then
+    echo "$(date) ERROR: python3 not found. Install Python 3 from Package Center." >> "${LOG_FILE}"
+    return 1
+  fi
+
+  if [ ! -f "${APP_DIR}/server.py" ]; then
+    echo "$(date) ERROR: server.py not found at ${APP_DIR}" >> "${LOG_FILE}"
+    return 1
+  fi
+
+  echo "$(date) Starting ${DNAME} with ${PYTHON3}" >> "${LOG_FILE}"
+
+  # Lancer Python directement (sans su) pour eviter les problemes de shell/droits
+  "${PYTHON3}" "${APP_DIR}/server.py" \
+    --host 0.0.0.0 \
+    --port "${SERVICE_PORT}" \
+    --data-dir "${VAR_DIR}" \
+    >> "${LOG_FILE}" 2>&1 &
+
+  echo $! > "${PID_FILE}"
+
+  # Verifier que le processus est toujours actif apres 2 secondes
+  sleep 2
+  if ! kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
+    echo "$(date) ERROR: ${DNAME} exited immediately. Check log: ${LOG_FILE}" >> "${LOG_FILE}"
+    rm -f "${PID_FILE}"
+    return 1
+  fi
+
+  echo "$(date) ${DNAME} started (PID=$(cat "${PID_FILE}"))" >> "${LOG_FILE}"
+}
+
+stop_daemon() {
+  if [ ! -f "${PID_FILE}" ]; then
+    return 0
+  fi
+
+  PID="$(cat "${PID_FILE}")"
+  if kill -0 "${PID}" 2>/dev/null; then
+    kill "${PID}"
+    sleep 1
+    if kill -0 "${PID}" 2>/dev/null; then
+      kill -9 "${PID}"
+    fi
+  fi
+  rm -f "${PID_FILE}"
+}
+
+daemon_status() {
+  if [ -f "${PID_FILE}" ] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+case "$1" in
+  start)
+    start_daemon
+    ;;
+  stop)
+    stop_daemon
+    ;;
+  restart)
+    stop_daemon
+    start_daemon
+    ;;
+  status)
+    if daemon_status; then
+      echo "${DNAME} is running"
+      exit 0
+    else
+      echo "${DNAME} is stopped"
+      exit 1
+    fi
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}"
+    exit 1
+    ;;
+esac
+
+exit 0

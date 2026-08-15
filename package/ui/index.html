@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Syno Batch Renamer</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #22c55e;
+      --border: #1f2937;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at top right, #1e293b 0%, #0f172a 55%, #020617 100%);
+      color: var(--text);
+      font-family: "Segoe UI", "Noto Sans", sans-serif;
+    }
+
+    .layout {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 10px;
+      padding: 10px;
+    }
+
+    .bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--panel) 88%, black);
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .muted {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .btn {
+      border: 1px solid #16a34a;
+      background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
+      color: #052e16;
+      font-weight: 700;
+      border-radius: 10px;
+      padding: 8px 12px;
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .frame-wrap {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      background: #020617;
+      min-height: 280px;
+      position: relative;
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: #020617;
+    }
+
+    .notice {
+      position: absolute;
+      inset: 0;
+      display: none;
+      place-items: center;
+      background: rgba(2, 6, 23, 0.92);
+      padding: 16px;
+      text-align: center;
+    }
+
+    .notice p {
+      margin: 0;
+      color: #cbd5e1;
+      max-width: 640px;
+      line-height: 1.5;
+      font-size: 14px;
+    }
+
+    .notice strong { color: #f8fafc; }
+    .notice a { color: #86efac; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="bar">
+      <div>
+        <p class="title">Syno Batch Renamer</p>
+        <p class="muted">Mode embarque DSM: interface integree, backend conserve sur port interne.</p>
+      </div>
+      <a class="btn" id="openApp" href="#" target="_blank" rel="noopener">Ouvrir dans un onglet</a>
+    </div>
+
+    <div class="frame-wrap">
+      <iframe id="appFrame" title="Syno Batch Renamer"></iframe>
+      <div class="notice" id="notice">
+        <p>
+          <strong>Le navigateur a bloque l'integration.</strong><br>
+          Si DSM est en HTTPS et le backend est en HTTP, le navigateur bloque l'iframe (mixed content).<br>
+          Ouvre l'application dans un onglet, ou configure un proxy HTTPS DSM vers le backend.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var host = window.location.hostname;
+      var appUrl = "http://" + host + ":8765/";
+      var frame = document.getElementById("appFrame");
+      var notice = document.getElementById("notice");
+      var openApp = document.getElementById("openApp");
+
+      openApp.href = appUrl;
+      frame.src = appUrl;
+
+      if (window.location.protocol === "https:") {
+        setTimeout(function () {
+          notice.style.display = "grid";
+        }, 1200);
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+# SPK compilé
+*.spk
+
+# Logs runtime (copiés depuis le NAS)
+Logs/
+
+# Données persistantes de l'app (profils, historique)
+package/app/data/
+package/app/logs/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Scripts de build temporaires
+build.sh
+
+# OS
+Thumbs.db
+.DS_Store

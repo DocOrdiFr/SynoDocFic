@@ -1,0 +1,8 @@
+#!/bin/sh
+
+PACKAGE="synobatchrenamer"
+
+# Supprimer l'entree webman
+rm -rf "/usr/syno/www/3rdparty/${PACKAGE}"
+
+exit 0

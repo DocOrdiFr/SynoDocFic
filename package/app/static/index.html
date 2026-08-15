@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SynoDocFic</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="shell">
+
+    <header class="app-header">
+      <div class="app-header-inner">
+        <div class="app-logo">
+          <span class="app-logo-icon">📁</span>
+          <div>
+            <h1>SynoDocFic</h1>
+            <p>Gestion de fichiers pour DSM 7</p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Onglets principaux -->
+    <nav class="main-tabs" role="tablist">
+      <button type="button" class="main-tab active" data-main="renommer">✏️ Renommer</button>
+      <button type="button" class="main-tab" data-main="synchro">🔄 SynchroSyno</button>
+    </nav>
+
+    <!-- ===== PANNEAU RENOMMER ===== -->
+    <div class="main-panel active" data-main-panel="renommer">
+
+      <section class="card controls">
+        <div class="card-header">
+          <span class="card-title">📁 Répertoire cible</span>
+          <button class="collapse-btn" type="button" aria-label="Réduire"></button>
+        </div>
+        <div class="card-body">
+          <div class="grid two">
+            <div>
+              <label for="directoryInput">Chemin</label>
+              <div class="input-row">
+                <input id="directoryInput" type="text" placeholder="/volume1/photos">
+                <button id="browseBtn" class="secondary" type="button">Parcourir</button>
+              </div>
+            </div>
+            <div class="checkbox-wrap">
+              <label class="checkbox">
+                <input id="recursiveInput" type="checkbox">
+                <span>Inclure les sous-dossiers</span>
+              </label>
+            </div>
+          </div>
+          <div id="browserPanel" class="browser hidden">
+            <div class="browser-head">
+              <strong id="browserPath">/</strong>
+              <button id="browserUpBtn" class="secondary" type="button">↑ Parent</button>
+            </div>
+            <div id="directoryList" class="directory-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card tabs-card">
+        <div class="card-header">
+          <span class="card-title">✏️ Opération de renommage</span>
+          <button class="collapse-btn" type="button" aria-label="Réduire"></button>
+        </div>
+        <div class="card-body">
+          <div class="sub-tabs" role="tablist">
+            <button type="button" class="sub-tab active" data-subtab="remove">Supprimer du texte</button>
+            <button type="button" class="sub-tab" data-subtab="prefix">Ajouter un préfixe</button>
+            <button type="button" class="sub-tab" data-subtab="suffix">Ajouter un suffixe</button>
+          </div>
+          <div class="sub-panels">
+            <div class="sub-panel active" data-subtab-panel="remove">
+              <label for="removeValue">Texte à supprimer des noms de fichiers</label>
+              <input id="removeValue" type="text" placeholder="brouillon">
+            </div>
+            <div class="sub-panel" data-subtab-panel="prefix">
+              <label for="prefixValue">Préfixe à ajouter</label>
+              <input id="prefixValue" type="text" placeholder="2026_">
+            </div>
+            <div class="sub-panel" data-subtab-panel="suffix">
+              <label for="suffixValue">Suffixe à ajouter</label>
+              <input id="suffixValue" type="text" placeholder="_archive">
+            </div>
+          </div>
+          <div class="actions">
+            <button id="previewBtn" type="button">🔍 Aperçu</button>
+            <button id="applyBtn" type="button" disabled>✅ Appliquer le renommage</button>
+            <button id="undoBtn" class="secondary" type="button">↩ Annuler le dernier lot</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card preview-card">
+        <div class="card-header">
+          <h2>Aperçu</h2>
+          <div class="card-header-end">
+            <span id="summaryBadge" class="badge">Aucun aperçu généré</span>
+            <button class="collapse-btn" type="button" aria-label="Réduire"></button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="preview-table-wrap">
+            <table class="preview-table">
+              <thead>
+                <tr>
+                  <th>Nom original</th>
+                  <th>Nouveau nom</th>
+                  <th>Statut</th>
+                </tr>
+              </thead>
+              <tbody id="previewBody">
+                <tr>
+                  <td colspan="3" class="muted">Générez un aperçu pour inspecter les modifications.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="card history-card">
+        <div class="card-header">
+          <h2>Historique</h2>
+          <div class="card-header-end">
+            <button id="refreshHistoryBtn" class="secondary" type="button">Actualiser</button>
+            <button class="collapse-btn" type="button" aria-label="Réduire"></button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="historyList" class="history-list">
+            <div class="muted">Aucune opération effectuée.</div>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /renommer -->
+
+    <!-- ===== PANNEAU SYNCHROSYNO ===== -->
+    <div class="main-panel" data-main-panel="synchro">
+
+      <section class="card">
+        <div class="card-header">
+          <span class="card-title">Nouveau profil de synchronisation</span>
+          <button class="collapse-btn" type="button" aria-label="Réduire"></button>
+        </div>
+        <div class="card-body">
+
+        <div style="max-width: 360px;">
+          <label for="syncName">Nom du profil</label>
+          <input id="syncName" type="text" placeholder="Sauvegarde Photos">
+        </div>
+
+        <div class="sync-path-group">
+          <div class="sync-path-header">Source</div>
+          <div class="grid two" style="margin-bottom:10px;">
+            <div>
+              <label for="syncSourceProtocol">Type</label>
+              <select id="syncSourceProtocol">
+                <option value="local">📂 Local</option>
+                <option value="smb">🌐 SMB/CIFS</option>
+                <option value="ftp">🌐 FTP</option>
+              </select>
+            </div>
+            <div id="syncSourceHostWrap" style="display:none;">
+              <label for="syncSourceHost">Hôte / IP</label>
+              <input id="syncSourceHost" type="text" placeholder="192.168.1.10 ou ftp.exemple.com">
+            </div>
+          </div>
+          <div>
+            <label for="syncSource">Chemin</label>
+            <div class="input-row">
+              <input id="syncSource" type="text" placeholder="/volume1/photos">
+              <button id="syncSourceBrowseBtn" class="secondary" type="button">Parcourir</button>
+            </div>
+          </div>
+          <div id="syncSourceRemote" class="sync-remote-fields" style="display:none;">
+            <div class="grid two" style="margin-top:10px;">
+              <div>
+                <label for="syncSourceUser">Utilisateur</label>
+                <input id="syncSourceUser" type="text" placeholder="utilisateur">
+              </div>
+              <div>
+                <label for="syncSourcePass">Mot de passe</label>
+                <input id="syncSourcePass" type="password" placeholder="••••••••">
+              </div>
+            </div>
+          </div>
+          <div id="syncSourceBrowser" class="browser hidden" style="margin-top:12px;">
+            <div class="browser-head">
+              <strong id="syncSourceBrowserPath">/volume</strong>
+              <button id="syncSourceBrowserUp" class="secondary" type="button">↑ Parent</button>
+            </div>
+            <div id="syncSourceDirList" class="directory-list"></div>
+          </div>
+        </div>
+
+        <div class="sync-path-group">
+          <div class="sync-path-header">Destination</div>
+          <div class="grid two" style="margin-bottom:10px;">
+            <div>
+              <label for="syncDestProtocol">Type</label>
+              <select id="syncDestProtocol">
+                <option value="local">📂 Local</option>
+                <option value="smb">🌐 SMB/CIFS</option>
+                <option value="ftp">🌐 FTP</option>
+              </select>
+            </div>
+            <div id="syncDestHostWrap" style="display:none;">
+              <label for="syncDestHost">Hôte / IP</label>
+              <input id="syncDestHost" type="text" placeholder="192.168.1.10 ou ftp.exemple.com">
+            </div>
+          </div>
+          <div>
+            <label for="syncDest">Chemin</label>
+            <div class="input-row">
+              <input id="syncDest" type="text" placeholder="/volume2/backup">
+              <button id="syncDestBrowseBtn" class="secondary" type="button">Parcourir</button>
+            </div>
+          </div>
+          <div id="syncDestRemote" class="sync-remote-fields" style="display:none;">
+            <div class="grid two" style="margin-top:10px;">
+              <div>
+                <label for="syncDestUser">Utilisateur</label>
+                <input id="syncDestUser" type="text" placeholder="utilisateur">
+              </div>
+              <div>
+                <label for="syncDestPass">Mot de passe</label>
+                <input id="syncDestPass" type="password" placeholder="••••••••">
+              </div>
+            </div>
+          </div>
+          <div id="syncDestBrowser" class="browser hidden" style="margin-top:12px;">
+            <div class="browser-head">
+              <strong id="syncDestBrowserPath">/volume</strong>
+              <button id="syncDestBrowserUp" class="secondary" type="button">↑ Parent</button>
+            </div>
+            <div id="syncDestDirList" class="directory-list"></div>
+          </div>
+        </div>
+
+        <div class="checkbox-wrap" style="margin-top:14px;">
+          <label class="checkbox">
+            <input id="syncRecursive" type="checkbox" checked>
+            <span>Inclure les sous-dossiers</span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="syncAddProfileBtn" type="button">➕ Ajouter ce profil</button>
+          <button id="syncEditCancelBtn" class="secondary" type="button" style="display:none;">↩ Annuler la modification</button>
+        </div>
+        </div><!-- /card-body -->
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2>Profils de synchronisation</h2>
+          <button class="collapse-btn" type="button" aria-label="Réduire"></button>
+        </div>
+        <div class="card-body">
+          <div id="syncProfilesList" class="profiles-list">
+            <p class="muted">Aucun profil créé.</p>
+          </div>
+        </div>
+      </section>
+
+      <div id="syncStatusPanel" class="card" style="display: none;">
+        <div class="card-header">
+          <span class="card-title">Résultat de la synchronisation</span>
+          <button class="collapse-btn" type="button" aria-label="Réduire"></button>
+        </div>
+        <div class="card-body">
+          <div id="syncStatusContent"></div>
+        </div>
+      </div>
+
+    </div><!-- /synchro -->
+
+    <div id="toast" class="toast hidden"></div>
+
+    <!-- ===== COMPARE MODAL ===== -->
+    <div id="compareOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <h2 id="compareModalTitle">Comparaison</h2>
+            <p id="compareModalSubtitle" class="muted"></p>
+          </div>
+          <button id="compareCloseBtn" class="secondary" type="button">&#x2715; Fermer</button>
+        </div>
+        <div id="compareModalSummary" class="compare-summary"></div>
+        <div id="compareModalDetails" class="compare-details"></div>
+        <div class="modal-actions">
+          <button id="compareModalLaunchBtn" type="button" style="display:none;">&#x25B6; Lancer la synchronisation</button>
+          <button id="compareCloseBtnBottom" class="secondary" type="button">Fermer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
