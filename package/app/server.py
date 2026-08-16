@@ -32,6 +32,33 @@ MAX_PREVIEW_ITEMS = 20000
 MAX_CACHE_PREVIEWS = 50
 ALLOWED_ROOT_PREFIX = "/volume"
 
+# Files/dirs to exclude from sync and compare
+_SKIP_FILENAMES = frozenset({"desktop.ini", "thumbs.db", ".ds_store"})
+_SKIP_DIRNAMES  = frozenset({"@eadir"})  # Synology thumbnail cache
+
+
+def _sync_skip_name(name: str) -> bool:
+    return name.lower() in _SKIP_FILENAMES
+
+
+def _sync_skip_dir(name: str) -> bool:
+    lower = name.lower()
+    # Skip Synology EA dirs and *.mp3 pseudo-dirs (embedded album art)
+    return lower in _SKIP_DIRNAMES or lower.endswith(".mp3")
+
+
+def _sync_skip_rel(rel: str) -> bool:
+    """True if any component of the relative path matches an exclusion rule."""
+    for i, part in enumerate(rel.replace("\\", "/").split("/")):
+        lower = part.lower()
+        if lower in _SKIP_FILENAMES:
+            return True
+        if lower in _SKIP_DIRNAMES:
+            return True
+        if lower.endswith(".mp3"):  # parent dir = embedded art container
+            return True
+    return False
+
 
 class AppState:
     def __init__(self, data_dir: Path) -> None:
@@ -502,54 +529,154 @@ def file_hash(file_path: str) -> str:
         return ""
 
 
-def compare_folders(profile: dict) -> dict:
-    """Dry-run comparison between source and destination."""
-    src = profile.get("source_path", "").strip()
-    dst = profile.get("dest_path", "").strip()
-    src_protocol = profile.get("source_protocol", profile.get("protocol", "local"))
-    dst_protocol = profile.get("dest_protocol", profile.get("protocol", "local"))
+def _fmt_ts(ts: float) -> str:
+    if not ts:
+        return "N/A"
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def build_listing_text(profile: dict) -> str:
+    """Produce a plain-text diagnostic dump of source and destination file listings."""
+    src_proto = profile.get("source_protocol", profile.get("protocol", "local"))
+    dst_proto = profile.get("dest_protocol", profile.get("protocol", "local"))
     recursive = profile.get("recursive", True)
 
-    if src_protocol != "local" or dst_protocol != "local":
-        raise RuntimeError("Comparaison disponible uniquement pour les chemins locaux.")
+    sep = "-" * 110
+
+    def section(label, proto, host, path, user, password):
+        lines = [f"=== {label} [{proto.upper()}] : {path} ==="]
+        try:
+            files = _list_endpoint_files(proto, host, path, user, password, recursive)
+        except Exception as exc:
+            lines.append(f"ERREUR : {exc}")
+            return lines, []
+        lines.append(f"Fichiers listés : {len(files)}")
+        lines.append(sep)
+        lines.append(f"{'Chemin relatif':<70}  {'Taille (o)':>12}  Mtime UTC")
+        lines.append(sep)
+        for f in sorted(files, key=lambda x: x["rel"].lower()):
+            lines.append(f"{f['rel']:<70}  {f['size']:>12}  {_fmt_ts(f.get('mtime', 0))}")
+        lines.append("")
+        return lines, files
+
+    out = [
+        "=== SynoDocFic – Listing brut pour diagnostic ===",
+        f"Profil  : {profile.get('name', '?')}",
+        f"Date    : {now_utc_iso()}",
+        f"Source  : [{src_proto}] {profile.get('source_host', '')}:{profile.get('source_path', '')}",
+        f"Dest    : [{dst_proto}] {profile.get('dest_host', '')}:{profile.get('dest_path', '')}",
+        f"Récursif: {recursive}",
+        "",
+    ]
+
+    src_lines, src_files = section(
+        "SOURCE", src_proto,
+        profile.get("source_host", ""), profile.get("source_path", ""),
+        profile.get("source_user", ""), profile.get("source_pass", ""),
+    )
+    out.extend(src_lines)
+
+    dst_lines, dst_files = section(
+        "DESTINATION", dst_proto,
+        profile.get("dest_host", ""), profile.get("dest_path", ""),
+        profile.get("dest_user", ""), profile.get("dest_pass", ""),
+    )
+    out.extend(dst_lines)
+
+    # Cross-reference
+    dst_index = {f["rel"]: f for f in dst_files}
+    out += [sep, "=== COMPARAISON CROISÉE ===", sep]
+    out.append(f"{'Chemin relatif':<70}  {'Src taille':>12}  {'Dst taille':>12}  {'Src mtime':>22}  {'Dst mtime':>22}  État")
+    out.append(sep)
+    for sf in sorted(src_files, key=lambda x: x["rel"].lower()):
+        rel = sf["rel"]
+        df = dst_index.get(rel)
+        if df is None:
+            state = "MANQUANT EN DEST"
+        elif sf["size"] != df["size"]:
+            state = f"TAILLE DIFF  src={sf['size']}  dst={df['size']}"
+        elif sf.get("mtime", 0) > 0 and df.get("mtime", 0) > 0 and sf["mtime"] > df["mtime"] + 2:
+            state = f"SRC PLUS RÉCENT  delta={sf['mtime'] - df['mtime']:.1f}s"
+        else:
+            continue  # skip identical files — user only wants differences
+        out.append(f"{rel:<70}  {sf['size']:>12}  {df['size'] if df else '-':>12}  "
+                   f"{_fmt_ts(sf.get('mtime', 0)):>22}  {_fmt_ts(df['mtime'] if df else 0):>22}  {state}")
+    out.append("")
+
+    return "\n".join(out)
+
+
+def compare_folders(profile: dict) -> dict:
+    """Dry-run comparison between source and destination (local, FTP or SMB)."""
+    src = profile.get("source_path", "").strip()
+    dst = profile.get("dest_path", "").strip()
+    src_proto = profile.get("source_protocol", profile.get("protocol", "local"))
+    dst_proto = profile.get("dest_protocol", profile.get("protocol", "local"))
+    recursive = profile.get("recursive", True)
+
     if not src or not dst:
         raise RuntimeError("Chemins source et destination requis.")
 
     result: dict = {"to_copy": [], "to_update": [], "up_to_date": 0, "errors": []}
 
     try:
-        src_files = list_local_files(src, recursive)
+        src_files = _list_endpoint_files(
+            src_proto, profile.get("source_host", ""),
+            src, profile.get("source_user", ""), profile.get("source_pass", ""), recursive
+        )
     except Exception as exc:
-        result["errors"].append(f"Impossible de lire la source : {exc}")
+        result["errors"].append(f"Source : {exc}")
         return result
 
-    dst_index: dict = {}
-    if Path(dst).exists():
-        try:
-            for f in list_local_files(dst, recursive):
-                rel = os.path.relpath(f["path"], dst)
-                dst_index[rel] = f
-        except Exception as exc:
-            result["errors"].append(f"Impossible de lire la destination : {exc}")
+    try:
+        dst_files = _list_endpoint_files(
+            dst_proto, profile.get("dest_host", ""),
+            dst, profile.get("dest_user", ""), profile.get("dest_pass", ""), recursive
+        )
+    except Exception as exc:
+        result["errors"].append(f"Destination : {exc}")
+        for f in src_files:
+            result["to_copy"].append({"rel": f["rel"], "size": f["size"]})
+        return result
+
+    dst_index = {f["rel"]: f for f in dst_files}
 
     for src_file in src_files:
-        rel = os.path.relpath(src_file["path"], src)
+        rel = src_file["rel"]
         if rel not in dst_index:
             result["to_copy"].append({"rel": rel, "size": src_file["size"]})
         else:
             dst_file = dst_index[rel]
-            if src_file["size"] != dst_file["size"] or src_file["mtime"] > dst_file["mtime"] + 2:
-                reason = "taille différente" if src_file["size"] != dst_file["size"] else "plus récent"
+            size_diff = src_file["size"] != dst_file["size"]
+            # Only compare mtime when both endpoints provide reliable timestamps
+            both_have_mtime = src_file.get("mtime", 0) > 0 and dst_file.get("mtime", 0) > 0
+            mtime_newer = both_have_mtime and src_file["mtime"] > dst_file["mtime"] + 2
+            if size_diff or mtime_newer:
                 result["to_update"].append({
                     "rel": rel,
                     "src_size": src_file["size"],
                     "dst_size": dst_file["size"],
-                    "reason": reason,
+                    "reason": "taille différente" if size_diff else "plus récent",
                 })
             else:
                 result["up_to_date"] += 1
 
     return result
+
+
+def _list_endpoint_files(protocol: str, host: str, path: str, user: str, password: str, recursive: bool) -> list:
+    if protocol == "local":
+        raw = list_local_files(path, recursive)
+        return [{"rel": os.path.relpath(f["path"], path), "size": f["size"], "mtime": f["mtime"]} for f in raw]
+    if protocol == "ftp":
+        if not host:
+            raise RuntimeError("Hôte FTP requis.")
+        return list_ftp_files(host, path, user, password, recursive)
+    if protocol == "smb":
+        if not host:
+            raise RuntimeError("Hôte SMB requis.")
+        return list_smb_files(host, path, user, password, recursive)
+    raise RuntimeError(f"Protocole {protocol} non supporté pour la comparaison.")
 
 
 def list_ftp_dirs(host: str, path: str, user: str, password: str) -> dict:
@@ -606,12 +733,180 @@ def list_ftp_dirs(host: str, path: str, user: str, password: str) -> dict:
         raise RuntimeError(f"Connexion FTP impossible : {exc}")
 
 
+def _parse_ftp_host(host: str):
+    host = host.strip()
+    port = 21
+    if ":" in host and not host.startswith("["):
+        h, _, p = host.rpartition(":")
+        try:
+            port = int(p); host = h
+        except ValueError:
+            pass
+    return host, port
+
+
+def _ftp_mtime(modify: str) -> float:
+    try:
+        dt = datetime.strptime(modify[:14], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except Exception:
+        return 0.0
+
+
+def list_ftp_files(host: str, base_path: str, user: str, password: str, recursive: bool = True) -> list:
+    """Recursively list files on an FTP server with size and mtime."""
+    host_part, port = _parse_ftp_host(host)
+    base = base_path or "/"
+    entries: list = []
+
+    ftp = ftplib.FTP()
+    try:
+        ftp.connect(host_part, port, timeout=30)
+        ftp.login(user or "anonymous", password or "")
+        # Ask server for UTF-8 filenames; fall back silently if unsupported
+        try:
+            ftp.sendcmd("OPTS UTF8 ON")
+        except ftplib.all_errors:
+            pass
+        ftp.encoding = "utf-8"
+
+        def scan(dir_path: str) -> None:
+            try:
+                for name, facts in ftp.mlsd(dir_path, facts=["size", "modify", "type"]):
+                    if name in (".", ".."):
+                        continue
+                    full = dir_path.rstrip("/") + "/" + name
+                    if facts.get("type") == "dir":
+                        if recursive and not _sync_skip_dir(name):
+                            scan(full)
+                    else:
+                        rel = os.path.relpath(full, base)
+                        if not _sync_skip_rel(rel):
+                            entries.append({
+                                "rel": rel,
+                                "size": int(facts.get("size", 0)),
+                                "mtime": _ftp_mtime(facts.get("modify", "")),
+                            })
+            except ftplib.all_errors:
+                lines: list = []
+                try:
+                    ftp.retrlines(f"LIST {dir_path}", lines.append)
+                except ftplib.all_errors:
+                    return
+                for line in lines:
+                    parts = line.split(None, 8)
+                    if len(parts) < 9:
+                        continue
+                    name = parts[8].strip()
+                    if name in (".", ".."):
+                        continue
+                    full = dir_path.rstrip("/") + "/" + name
+                    if parts[0].startswith("d"):
+                        if recursive and not _sync_skip_dir(name):
+                            scan(full)
+                    else:
+                        rel = os.path.relpath(full, base)
+                        if _sync_skip_rel(rel):
+                            continue
+                        size, mtime = 0, 0.0
+                        try:
+                            size = ftp.size(full) or 0
+                        except ftplib.all_errors:
+                            pass
+                        try:
+                            mtime = _ftp_mtime(ftp.sendcmd(f"MDTM {full}").split()[-1])
+                        except ftplib.all_errors:
+                            pass
+                        entries.append({
+                            "rel": rel,
+                            "size": size, "mtime": mtime,
+                        })
+
+        scan(base)
+        ftp.quit()
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Erreur FTP : {exc}")
+
+    return entries
+
+
+def list_smb_files(host: str, path: str, user: str, password: str, recursive: bool = True) -> list:
+    """List files on an SMB share via smbclient."""
+    import shutil as _shutil
+    smbclient = _shutil.which("smbclient")
+    if not smbclient:
+        for cand in ("/usr/bin/smbclient", "/usr/syno/bin/smbclient", "/opt/bin/smbclient"):
+            if os.path.exists(cand):
+                smbclient = cand
+                break
+    if not smbclient:
+        raise RuntimeError("smbclient introuvable. Montez le partage localement ou utilisez FTP.")
+
+    # First path component = SMB share name
+    stripped = path.lstrip("/").replace("\\", "/")
+    parts = stripped.split("/", 1)
+    share = parts[0]
+    subpath = parts[1] if len(parts) > 1 else ""
+
+    unc = f"//{host}/{share}"
+    auth = f"{user}%{password}" if user else "guest%"
+    cmds: list = []
+    if subpath:
+        cmds.append(f"cd {subpath}")
+    if recursive:
+        cmds.extend(["recurse ON", "ls"])
+    else:
+        cmds.append("ls")
+
+    proc = subprocess.run(
+        [smbclient, unc, "-U", auth, "-c", "; ".join(cmds)],
+        capture_output=True, text=True, timeout=30,
+    )
+
+    entries = []
+    base = "/" + subpath if subpath else "/"
+    current_dir = base
+
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("\\"):  # directory context printed by recurse
+            current_dir = "/" + line.lstrip("\\").replace("\\", "/")
+            continue
+        parts = line.rsplit(None, 5)
+        if len(parts) < 6:
+            continue
+        name, attrs = parts[0].lstrip(), parts[1]
+        if name in (".", "..") or "D" in attrs:
+            continue
+        try:
+            size = int(parts[2])
+        except ValueError:
+            continue
+        rel_path = os.path.join(current_dir.lstrip("/"), name) if current_dir != "/" else name
+        rel = os.path.relpath("/" + rel_path, base)
+        if not _sync_skip_rel(rel):
+            entries.append({"rel": rel, "size": size, "mtime": 0.0})
+
+    if proc.returncode != 0 and not entries:
+        msg = next((l for l in proc.stdout.splitlines() if "NT_STATUS" in l), "") or proc.stderr
+        raise RuntimeError(f"Erreur SMB : {msg.strip() or 'connexion échouée'}")
+
+    return entries
+
+
 def list_local_files(directory: str, recursive: bool = True):
     """List files in a local directory with basic info."""
     files = []
     if recursive:
         for root, dirs, filenames in os.walk(directory):
+            dirs[:] = [d for d in dirs if not _sync_skip_dir(d)]
             for fname in filenames:
+                if _sync_skip_name(fname):
+                    continue
                 full_path = os.path.join(root, fname)
                 try:
                     stat = os.stat(full_path)
@@ -626,7 +921,7 @@ def list_local_files(directory: str, recursive: bool = True):
     else:
         try:
             for entry in os.scandir(directory):
-                if entry.is_file(follow_symlinks=False):
+                if entry.is_file(follow_symlinks=False) and not _sync_skip_name(entry.name):
                     stat = entry.stat(follow_symlinks=False)
                     files.append({
                         "path": entry.path,
@@ -739,6 +1034,17 @@ class RequestHandler(BaseHTTPRequestHandler):
         body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self._add_cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _write_text_download(self, text: str, filename: str):
+        body = text.encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self._add_cors_headers()
@@ -1105,6 +1411,21 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 result = compare_folders(profile)
                 return self._write_json(HTTPStatus.OK, result)
+            except Exception as exc:
+                return self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
+        if parsed.path == "/api/sync/dump-listing":
+            profile_id = str(data.get("profile_id", "")).strip()
+            if not profile_id:
+                return self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Profile ID required."})
+            profiles = self.server.state.get_sync_profiles()
+            profile = next((p for p in profiles if p.get("id") == profile_id), None)
+            if not profile:
+                return self._write_json(HTTPStatus.NOT_FOUND, {"error": "Profile not found."})
+            try:
+                text = build_listing_text(profile)
+                filename = f"listing_{profile_id[:8]}_{now_utc_iso()[:10]}.txt"
+                return self._write_text_download(text, filename)
             except Exception as exc:
                 return self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
 

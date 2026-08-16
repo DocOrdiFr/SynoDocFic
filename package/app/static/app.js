@@ -579,6 +579,9 @@ function initCompareModal() {
     closeCompareModal();
     if (compareCurrentProfileId) runSyncProfile(compareCurrentProfileId);
   });
+  document.getElementById('compareDownloadBtn')?.addEventListener('click', () => {
+    if (compareCurrentProfileId) downloadListing(compareCurrentProfileId);
+  });
 }
 
 function closeCompareModal() {
@@ -638,9 +641,33 @@ async function compareProfile(profileId) {
     if (data.to_copy.length || data.to_update.length) {
       document.getElementById('compareModalLaunchBtn').style.display = '';
     }
+    document.getElementById('compareDownloadBtn').style.display = '';
   } catch (error) {
     document.getElementById('compareModalSummary').innerHTML =
       `<div class="muted" style="color:#c0392b;">Erreur : ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function downloadListing(profileId) {
+  try {
+    const res = await fetch('/api/sync/dump-listing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profileId }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const text = await res.text();
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `listing_${profileId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    showToast('Erreur téléchargement : ' + error.message);
   }
 }
 
