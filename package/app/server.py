@@ -695,6 +695,11 @@ def list_ftp_dirs(host: str, path: str, user: str, password: str) -> dict:
     try:
         ftp.connect(host_part, port, timeout=10)
         ftp.login(user or "anonymous", password or "")
+        try:
+            ftp.sendcmd("OPTS UTF8 ON")
+        except ftplib.all_errors:
+            pass
+        ftp.encoding = "utf-8"
 
         if path and path != "/":
             try:
