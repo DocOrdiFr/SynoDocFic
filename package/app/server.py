@@ -16,10 +16,13 @@ import hashlib
 import json
 import os
 import posixpath
+import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
+import unicodedata
 import uuid
 from collections import defaultdict, deque
 from datetime import datetime, timezone
@@ -49,15 +52,26 @@ def _sync_skip_dir(name: str) -> bool:
 
 def _sync_skip_rel(rel: str) -> bool:
     """True if any component of the relative path matches an exclusion rule."""
-    for i, part in enumerate(rel.replace("\\", "/").split("/")):
+    parts = rel.replace("\\", "/").split("/")
+    last = len(parts) - 1
+    for i, part in enumerate(parts):
         lower = part.lower()
         if lower in _SKIP_FILENAMES:
             return True
         if lower in _SKIP_DIRNAMES:
             return True
-        if lower.endswith(".mp3"):  # parent dir = embedded art container
+        # Only an *ancestor* segment named like "track.mp3" is a pseudo-dir
+        # (embedded album art container); the final segment is the real file.
+        if i != last and lower.endswith(".mp3"):
             return True
     return False
+
+
+def _normalize_rel_path(rel: str) -> str:
+    """Return one stable key for a relative path from any endpoint."""
+    normalized = unicodedata.normalize("NFC", str(rel)).replace("\\", "/")
+    normalized = posixpath.normpath(normalized)
+    return "" if normalized == "." else normalized.lstrip("./")
 
 
 class AppState:
@@ -667,7 +681,7 @@ def compare_folders(profile: dict) -> dict:
 def _list_endpoint_files(protocol: str, host: str, path: str, user: str, password: str, recursive: bool) -> list:
     if protocol == "local":
         raw = list_local_files(path, recursive)
-        return [{"rel": os.path.relpath(f["path"], path), "size": f["size"], "mtime": f["mtime"]} for f in raw]
+        return [{"rel": _normalize_rel_path(os.path.relpath(f["path"], path)), "size": f["size"], "mtime": f["mtime"]} for f in raw]
     if protocol == "ftp":
         if not host:
             raise RuntimeError("Hôte FTP requis.")
@@ -785,7 +799,7 @@ def list_ftp_files(host: str, base_path: str, user: str, password: str, recursiv
                         if recursive and not _sync_skip_dir(name):
                             scan(full)
                     else:
-                        rel = os.path.relpath(full, base)
+                        rel = _normalize_rel_path(posixpath.relpath(full, base))
                         if not _sync_skip_rel(rel):
                             entries.append({
                                 "rel": rel,
@@ -796,8 +810,10 @@ def list_ftp_files(host: str, base_path: str, user: str, password: str, recursiv
                 lines: list = []
                 try:
                     ftp.retrlines(f"LIST {dir_path}", lines.append)
-                except ftplib.all_errors:
-                    return
+                except ftplib.all_errors as exc:
+                    raise RuntimeError(
+                        f"Inventaire FTP incomplet dans {dir_path}: {exc}"
+                    ) from exc
                 for line in lines:
                     parts = line.split(None, 8)
                     if len(parts) < 9:
@@ -810,7 +826,7 @@ def list_ftp_files(host: str, base_path: str, user: str, password: str, recursiv
                         if recursive and not _sync_skip_dir(name):
                             scan(full)
                     else:
-                        rel = os.path.relpath(full, base)
+                        rel = _normalize_rel_path(posixpath.relpath(full, base))
                         if _sync_skip_rel(rel):
                             continue
                         size, mtime = 0, 0.0
@@ -881,18 +897,18 @@ def list_smb_files(host: str, path: str, user: str, password: str, recursive: bo
         if line.startswith("\\"):  # directory context printed by recurse
             current_dir = "/" + line.lstrip("\\").replace("\\", "/")
             continue
-        parts = line.rsplit(None, 5)
-        if len(parts) < 6:
+        match = re.match(r"^(.*?)\s+([A-Z]+)\s+(\d+)\s+", line)
+        if not match:
             continue
-        name, attrs = parts[0].lstrip(), parts[1]
+        name, attrs = match.group(1).strip(), match.group(2)
         if name in (".", "..") or "D" in attrs:
             continue
         try:
-            size = int(parts[2])
+            size = int(match.group(3))
         except ValueError:
             continue
         rel_path = os.path.join(current_dir.lstrip("/"), name) if current_dir != "/" else name
-        rel = os.path.relpath("/" + rel_path, base)
+        rel = _normalize_rel_path(posixpath.relpath("/" + rel_path, base))
         if not _sync_skip_rel(rel):
             entries.append({"rel": rel, "size": size, "mtime": 0.0})
 
@@ -901,6 +917,70 @@ def list_smb_files(host: str, path: str, user: str, password: str, recursive: bo
         raise RuntimeError(f"Erreur SMB : {msg.strip() or 'connexion échouée'}")
 
     return entries
+
+
+def list_smb_dirs(host: str, path: str, user: str, password: str) -> dict:
+    """List directories in an SMB share for the path browser."""
+    import shutil as _shutil
+
+    smbclient = _shutil.which("smbclient")
+    if not smbclient:
+        for cand in ("/usr/bin/smbclient", "/usr/syno/bin/smbclient", "/opt/bin/smbclient"):
+            if os.path.exists(cand):
+                smbclient = cand
+                break
+    if not smbclient:
+        raise RuntimeError("smbclient introuvable. Montez le partage localement ou utilisez FTP.")
+
+    stripped = path.strip().lstrip("/").replace("\\", "/")
+    parts = stripped.split("/", 1) if stripped else []
+    share = parts[0] if parts else ""
+    subpath = parts[1] if len(parts) > 1 else ""
+    if not share:
+        auth = f"{user}%{password}" if user else "guest%"
+        proc = subprocess.run(
+            [smbclient, "-L", host, "-U", auth, "-g"],
+            capture_output=True, text=True, timeout=30,
+        )
+        directories = []
+        for line in proc.stdout.splitlines():
+            fields = line.split("|", 2)
+            if len(fields) >= 2 and fields[0].strip().lower() == "disk":
+                directories.append("/" + fields[1].strip())
+        if proc.returncode != 0 and not directories:
+            msg = next((line for line in proc.stdout.splitlines() if "NT_STATUS" in line), "") or proc.stderr
+            raise RuntimeError(f"Erreur SMB : {msg.strip() or 'connexion échouée'}")
+        return {"path": "/", "directories": sorted(directories), "parent": None}
+
+    unc = f"//{host}/{share}"
+    auth = f"{user}%{password}" if user else "guest%"
+    command = f"cd {subpath}; ls" if subpath else "ls"
+    proc = subprocess.run(
+        [smbclient, unc, "-U", auth, "-c", command],
+        capture_output=True, text=True, timeout=30,
+    )
+
+    directories = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        match = re.match(r"^(.*?)\s+([A-Z]+)\s+(\d+)\s+", line)
+        if not match or "D" not in match.group(2):
+            continue
+        name = match.group(1).strip()
+        if name in (".", ".."):
+            continue
+        current = f"/{share}/{subpath}" if subpath else f"/{share}"
+        directories.append(f"{current.rstrip('/')}/{name}")
+
+    if proc.returncode != 0 and not directories:
+        msg = next((line for line in proc.stdout.splitlines() if "NT_STATUS" in line), "") or proc.stderr
+        raise RuntimeError(f"Erreur SMB : {msg.strip() or 'connexion échouée'}")
+
+    current = f"/{share}/{subpath}" if subpath else f"/{share}"
+    parent = posixpath.dirname(current.rstrip("/")) or "/"
+    return {"path": current, "directories": sorted(directories), "parent": parent}
 
 
 def list_local_files(directory: str, recursive: bool = True):
@@ -939,8 +1019,125 @@ def list_local_files(directory: str, recursive: bool = True):
     return files
 
 
+def _smbclient_path() -> str:
+    import shutil as _shutil
+
+    smbclient = _shutil.which("smbclient")
+    if smbclient:
+        return smbclient
+    for candidate in ("/usr/bin/smbclient", "/usr/syno/bin/smbclient", "/opt/bin/smbclient"):
+        if os.path.exists(candidate):
+            return candidate
+    raise RuntimeError("smbclient introuvable pour la copie SMB/CIFS.")
+
+
+def _smb_parts(path: str) -> tuple:
+    stripped = path.strip().lstrip("/").replace("\\", "/")
+    parts = stripped.split("/", 1) if stripped else []
+    if not parts:
+        raise RuntimeError("Le chemin SMB doit commencer par le nom du partage.")
+    return parts[0], parts[1] if len(parts) > 1 else ""
+
+
+def _smb_quote(value: str) -> str:
+    return '"' + value.replace('"', '\\"') + '"'
+
+
+def _ftp_connection(host: str, user: str, password: str) -> ftplib.FTP:
+    host_part, port = _parse_ftp_host(host)
+    ftp = ftplib.FTP()
+    ftp.connect(host_part, port, timeout=30)
+    ftp.login(user or "anonymous", password or "")
+    try:
+        ftp.sendcmd("OPTS UTF8 ON")
+    except ftplib.all_errors:
+        pass
+    ftp.encoding = "utf-8"
+    return ftp
+
+
+def _download_remote_file(profile: dict, rel: str, target: str) -> None:
+    protocol = profile.get("source_protocol", profile.get("protocol", "local"))
+    base = profile.get("source_path", "")
+    if protocol == "ftp":
+        ftp = _ftp_connection(profile.get("source_host", ""), profile.get("source_user", ""), profile.get("source_pass", ""))
+        try:
+            remote = posixpath.join(base.rstrip("/"), rel.replace("\\", "/"))
+            with open(target, "wb") as stream:
+                ftp.retrbinary(f"RETR {remote}", stream.write)
+        finally:
+            ftp.quit()
+        return
+    if protocol == "smb":
+        share, subpath = _smb_parts(base)
+        rel_posix = rel.replace("\\", "/")
+        commands = []
+        if subpath:
+            commands.append(f"cd {_smb_quote(subpath)}")
+        directory = posixpath.dirname(rel_posix)
+        for part in directory.split("/") if directory else []:
+            if part:
+                commands.append(f"cd {_smb_quote(part)}")
+        commands.append(f"get {_smb_quote(posixpath.basename(rel_posix))} {_smb_quote(target)}")
+        proc = subprocess.run(
+            [_smbclient_path(), f"//{profile.get('source_host', '')}/{share}", "-U", f"{profile.get('source_user', '') or 'guest'}%{profile.get('source_pass', '')}", "-c", "; ".join(commands)],
+            capture_output=True, text=True, timeout=3600,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"Téléchargement SMB impossible : {proc.stderr.strip() or proc.stdout.strip()}")
+        return
+    raise RuntimeError(f"Source {protocol.upper()} non supportée pour la copie.")
+
+
+def _upload_remote_file(profile: dict, rel: str, source: str) -> None:
+    protocol = profile.get("dest_protocol", profile.get("protocol", "local"))
+    base = profile.get("dest_path", "")
+    rel_posix = rel.replace("\\", "/")
+    if protocol == "ftp":
+        ftp = _ftp_connection(profile.get("dest_host", ""), profile.get("dest_user", ""), profile.get("dest_pass", ""))
+        try:
+            ftp.cwd(base or "/")
+            directory = posixpath.dirname(rel_posix)
+            if directory:
+                for part in directory.split("/"):
+                    if not part:
+                        continue
+                    try:
+                        ftp.cwd(part)
+                    except ftplib.all_errors:
+                        ftp.mkd(part)
+                        ftp.cwd(part)
+            with open(source, "rb") as stream:
+                ftp.storbinary(f"STOR {posixpath.basename(rel_posix)}", stream)
+        finally:
+            ftp.quit()
+        return
+    if protocol == "smb":
+        share, subpath = _smb_parts(base)
+        directory = posixpath.dirname(rel_posix)
+        commands = []
+        if subpath:
+            commands.append(f"cd {_smb_quote(subpath)}")
+        current = ""
+        for part in directory.split("/") if directory else []:
+            if not part:
+                continue
+            commands.append(f"mkdir {_smb_quote(part)}")
+            commands.append(f"cd {_smb_quote(part)}")
+            current = posixpath.join(current, part)
+        commands.append(f"put {_smb_quote(source)} {_smb_quote(posixpath.basename(rel_posix))}")
+        proc = subprocess.run(
+            [_smbclient_path(), f"//{profile.get('dest_host', '')}/{share}", "-U", f"{profile.get('dest_user', '') or 'guest'}%{profile.get('dest_pass', '')}", "-c", "; ".join(commands)],
+            capture_output=True, text=True, timeout=3600,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"Envoi SMB impossible : {proc.stderr.strip() or proc.stdout.strip()}")
+        return
+    raise RuntimeError(f"Destination {protocol.upper()} non supportée pour la copie.")
+
+
 def sync_folders(source_profile: dict, app_state: 'AppState') -> dict:
-    """Synchronize folders unidirectionally from source to dest."""
+    """Synchronize folders unidirectionally between local, FTP and SMB endpoints."""
     result = {
         "files_copied": 0,
         "files_skipped": 0,
@@ -961,63 +1158,57 @@ def sync_folders(source_profile: dict, app_state: 'AppState') -> dict:
             result["error_messages"].append("Source or destination path empty")
             return result
 
-        if src_protocol != "local":
-            result["errors"] = 1
-            result["error_messages"].append(f"Sync depuis {src_protocol.upper()} non encore implémenté. Montez le partage comme chemin local.")
-            return result
+        src_files = _list_endpoint_files(
+            src_protocol, source_profile.get("source_host", ""), src,
+            source_profile.get("source_user", ""), source_profile.get("source_pass", ""), recursive,
+        )
+        dst_files = _list_endpoint_files(
+            dst_protocol, source_profile.get("dest_host", ""), dst,
+            source_profile.get("dest_user", ""), source_profile.get("dest_pass", ""), recursive,
+        )
+        dst_index = {file["rel"]: file for file in dst_files}
 
-        if dst_protocol != "local":
-            result["errors"] = 1
-            result["error_messages"].append(f"Sync vers {dst_protocol.upper()} non encore implémenté. Montez le partage comme chemin local.")
-            return result
-
-        # Create destination if it doesn't exist
-        try:
+        if dst_protocol == "local":
             os.makedirs(dst, exist_ok=True)
-        except OSError as e:
-            result["errors"] = 1
-            result["error_messages"].append(f"Cannot create destination: {str(e)}")
-            return result
 
-        # List files in source
-        try:
-            src_files = list_local_files(src, recursive)
-        except Exception as e:
-            result["errors"] = 1
-            result["error_messages"].append(f"Cannot read source: {str(e)}")
-            return result
-
-        # For each file, check if it exists in destination with same size/mtime
         for src_file in src_files:
-            rel_path = os.path.relpath(src_file["path"], src)
-            dst_file_path = os.path.join(dst, rel_path)
-
-            # Ensure destination directory exists
-            dst_dir = os.path.dirname(dst_file_path)
-            try:
-                os.makedirs(dst_dir, exist_ok=True)
-            except OSError:
-                result["errors"] += 1
-                result["error_messages"].append(f"Cannot create dir: {dst_dir}")
+            rel_path = _normalize_rel_path(src_file["rel"])
+            dst_file = dst_index.get(rel_path)
+            both_have_mtime = dst_file and src_file.get("mtime", 0) > 0 and dst_file.get("mtime", 0) > 0
+            unchanged = bool(dst_file and src_file["size"] == dst_file["size"] and (
+                not both_have_mtime or src_file["mtime"] <= dst_file["mtime"] + 2
+            ))
+            if unchanged:
+                result["files_skipped"] += 1
                 continue
 
-            # Check if file exists and is identical (size + mtime)
-            if os.path.exists(dst_file_path):
-                try:
-                    dst_stat = os.stat(dst_file_path)
-                    if dst_stat.st_size == src_file["size"] and dst_stat.st_mtime == src_file["mtime"]:
-                        result["files_skipped"] += 1
-                        continue
-                except OSError:
-                    pass
-
-            # Copy file
+            temp_path = None
             try:
-                shutil.copy2(src_file["path"], dst_file_path)
+                if src_protocol == "local":
+                    source_file_path = os.path.join(src, rel_path.replace("/", os.sep))
+                else:
+                    handle = tempfile.NamedTemporaryFile(prefix="synodocfic-", delete=False)
+                    temp_path = handle.name
+                    handle.close()
+                    _download_remote_file(source_profile, rel_path, temp_path)
+                    source_file_path = temp_path
+
+                if dst_protocol == "local":
+                    destination_file_path = os.path.join(dst, rel_path.replace("/", os.sep))
+                    os.makedirs(os.path.dirname(destination_file_path), exist_ok=True)
+                    shutil.copy2(source_file_path, destination_file_path)
+                else:
+                    _upload_remote_file(source_profile, rel_path, source_file_path)
                 result["files_copied"] += 1
-            except Exception as e:
+            except Exception as exc:
                 result["errors"] += 1
-                result["error_messages"].append(f"Copy failed {rel_path}: {str(e)}")
+                result["error_messages"].append(f"Copie impossible {rel_path}: {exc}")
+            finally:
+                if temp_path:
+                    try:
+                        os.unlink(temp_path)
+                    except OSError:
+                        pass
 
         return result
 
@@ -1028,7 +1219,7 @@ def sync_folders(source_profile: dict, app_state: 'AppState') -> dict:
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "SynoBatchRenamer/1.0"
+    server_version = "SynoBatchRenamer/1.1.1"
 
     def _add_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -1508,6 +1699,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                     return self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Hôte FTP requis."})
                 try:
                     result = list_ftp_dirs(host, path, user, password)
+                    return self._write_json(HTTPStatus.OK, result)
+                except Exception as exc:
+                    return self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
+            elif protocol == "smb":
+                host = str(data.get("host", "")).strip()
+                user = str(data.get("user", "")).strip()
+                password = str(data.get("password", "")).strip()
+                if not host:
+                    return self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Hôte SMB requis."})
+                try:
+                    result = list_smb_dirs(host, path, user, password)
                     return self._write_json(HTTPStatus.OK, result)
                 except Exception as exc:
                     return self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})

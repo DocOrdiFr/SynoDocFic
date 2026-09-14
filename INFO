@@ -1,5 +1,5 @@
 package="synobatchrenamer"
-version="1.0.0-0007"
+version="1.1.1-0003"
 arch="noarch"
 os_min_ver="7.0-40000"
 displayname="SynoDocFic"

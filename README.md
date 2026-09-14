@@ -23,7 +23,7 @@ This project is a full Synology DSM 7 package source for a batch file renaming w
 ### SynchroSyno (Folder Sync)
 - Create sync profiles with source & destination paths
 - Support for local-to-local synchronization
-- Remote paths via SMB/FTP (mount as local filesystem)
+- Remote paths via SMB/FTP with direct comparison and copy
 - Intelligent sync:
   - Compares file size & modification time
   - Skips identical files (no re-copy)
@@ -219,7 +219,9 @@ If your DSM session is HTTPS, modern browsers can block the embedded iframe if b
 - Directory operations are restricted to absolute `/volumeX/...` paths.
 - Sync feature:
   - Directly supports local-to-local paths.
-  - For SMB/FTP sources: mount them as NFS/cifs on DSM then reference the mount point.
+  - Supports local, FTP and SMB/CIFS sources and destinations through the configured endpoint credentials.
+  - SMB/CIFS browsing, comparison and copy require `smbclient` to be installed on DSM.
+  - FTP browsing, comparison and copy use the Python FTP client.
   - Files are compared by size + mtime; identical files are not re-copied.
   - Recursive mode includes subdirectories; non-recursive copies files only from source root.
 - Persisted runtime files:
