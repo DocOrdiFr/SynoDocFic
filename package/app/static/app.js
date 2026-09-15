@@ -504,6 +504,36 @@ async function addSyncProfile() {
   }
 }
 
+function setCompareControlsDisabled(disabled) {
+  document.getElementById('compareModalLaunchBtn').disabled = disabled;
+  document.getElementById('compareSelectAllBtn').disabled = disabled;
+  document.getElementById('compareDeselectAllBtn').disabled = disabled;
+  document.querySelectorAll('.compare-check').forEach((el) => { el.disabled = disabled; });
+}
+
+async function pollSyncProgress(profileId) {
+  const progressEl = document.getElementById('compareProgress');
+  const fillEl = document.getElementById('compareProgressFill');
+  const textEl = document.getElementById('compareProgressText');
+  progressEl.style.display = '';
+  fillEl.style.width = '0%';
+  textEl.textContent = 'Démarrage…';
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const job = await apiPost('/api/sync/progress', { profile_id: profileId });
+    const total = job.total || 0;
+    const processed = job.processed || 0;
+    const pct = total ? Math.round((processed / total) * 100) : 0;
+    fillEl.style.width = pct + '%';
+    textEl.textContent = total
+      ? `${processed} / ${total} — ${job.current ? escapeHtml(job.current) : ''}`
+      : 'Analyse en cours…';
+    if (job.status === 'done') return job;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
 async function runSyncProfile(profileId, selectedRels) {
   if (syncState.running) {
     showToast('Une synchronisation est déjà en cours.');
@@ -511,10 +541,15 @@ async function runSyncProfile(profileId, selectedRels) {
   }
 
   syncState.running = true;
+  setCompareControlsDisabled(true);
   try {
     const payload = { profile_id: profileId };
     if (Array.isArray(selectedRels)) payload.selected_rels = selectedRels;
-    const data = await apiPost('/api/sync/run', payload);
+    await apiPost('/api/sync/run', payload);
+
+    const data = await pollSyncProgress(profileId);
+
+    document.getElementById('compareProgressText').textContent = 'Synchronisation terminée.';
     const panel = document.getElementById('syncStatusPanel');
     const content = document.getElementById('syncStatusContent');
     panel.style.display = 'block';
@@ -524,13 +559,14 @@ async function runSyncProfile(profileId, selectedRels) {
       <p>Fichiers ignorés (identiques) : ${data.files_skipped || 0}</p>
       ${data.files_excluded ? `<p>Fichiers non sélectionnés : ${data.files_excluded}</p>` : ''}
       <p>Erreurs : ${data.errors || 0}</p>
-      ${data.error_messages ? '<p style="color: #c0392b;">' + escapeHtml(data.error_messages.join('; ')) + '</p>' : ''}
+      ${data.error_messages?.length ? '<p style="color: #c0392b;">' + escapeHtml(data.error_messages.join('; ')) + '</p>' : ''}
     `;
     showToast('Synchronisation terminée.');
   } catch (error) {
     showToast('Erreur de synchronisation : ' + error.message);
   } finally {
     syncState.running = false;
+    setCompareControlsDisabled(false);
   }
 }
 
@@ -583,7 +619,6 @@ function initCompareModal() {
       showToast('Sélectionnez au moins un fichier à copier.');
       return;
     }
-    closeCompareModal();
     if (compareCurrentProfileId) runSyncProfile(compareCurrentProfileId, selectedRels);
   });
   document.getElementById('compareSelectAllBtn')?.addEventListener('click', () => setAllCompareChecks(true));
@@ -631,6 +666,7 @@ async function compareProfile(profileId) {
   document.getElementById('compareModalDetails').innerHTML = '';
   document.getElementById('compareModalLaunchBtn').style.display = 'none';
   document.getElementById('compareSelectAllBar').style.display = 'none';
+  document.getElementById('compareProgress').style.display = 'none';
   document.getElementById('compareOverlay').classList.remove('hidden');
 
   try {

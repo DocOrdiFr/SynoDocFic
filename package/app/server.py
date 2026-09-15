@@ -93,6 +93,8 @@ class AppState:
         self.preview_cache = {}
         self.preview_order = deque()
         self.lock = threading.Lock()
+        self.sync_jobs = {}
+        self.sync_jobs_lock = threading.Lock()
 
         if not self.history_file.exists():
             self._write_history([])
@@ -220,6 +222,39 @@ class AppState:
         with self.lock:
             with self.operations_log_file.open("a", encoding="utf-8") as f:
                 f.write(line + "\n")
+
+    # ----- Sync job progress (in-memory, per profile_id) -----
+    def start_sync_job(self, profile_id):
+        with self.sync_jobs_lock:
+            self.sync_jobs[profile_id] = {
+                "status": "running",
+                "total": 0,
+                "processed": 0,
+                "current": "",
+                "files_copied": 0,
+                "files_skipped": 0,
+                "files_excluded": 0,
+                "errors": 0,
+                "error_messages": [],
+            }
+
+    def update_sync_job(self, profile_id, **kwargs):
+        with self.sync_jobs_lock:
+            job = self.sync_jobs.get(profile_id)
+            if job is not None:
+                job.update(kwargs)
+
+    def finish_sync_job(self, profile_id, result):
+        with self.sync_jobs_lock:
+            job = self.sync_jobs.get(profile_id)
+            if job is not None:
+                job.update(result)
+                job["status"] = "done"
+
+    def get_sync_job(self, profile_id):
+        with self.sync_jobs_lock:
+            job = self.sync_jobs.get(profile_id)
+            return dict(job) if job is not None else None
 
 
 def now_utc_iso() -> str:
@@ -1152,12 +1187,15 @@ def _upload_remote_file(profile: dict, rel: str, source: str) -> None:
     raise RuntimeError(f"Destination {protocol.upper()} non supportée pour la copie.")
 
 
-def sync_folders(source_profile: dict, app_state: 'AppState', selected_rels=None) -> dict:
+def sync_folders(source_profile: dict, app_state: 'AppState', selected_rels=None, profile_id=None) -> dict:
     """Synchronize folders unidirectionally between local, FTP and SMB endpoints.
 
     If selected_rels is given (a set of relative paths), only files whose
     relative path is in that set are copied/updated; the rest are left
     untouched (user unchecked them).
+
+    If profile_id is given, progress is reported into app_state.sync_jobs
+    (polled by the frontend via /api/sync/progress) as each file is handled.
     """
     result = {
         "files_copied": 0,
@@ -1166,6 +1204,20 @@ def sync_folders(source_profile: dict, app_state: 'AppState', selected_rels=None
         "errors": 0,
         "error_messages": [],
     }
+    processed = 0
+
+    def _report(current_rel):
+        if profile_id is not None:
+            app_state.update_sync_job(
+                profile_id,
+                processed=processed,
+                current=current_rel,
+                files_copied=result["files_copied"],
+                files_skipped=result["files_skipped"],
+                files_excluded=result["files_excluded"],
+                errors=result["errors"],
+                error_messages=list(result["error_messages"]),
+            )
 
     try:
         src = source_profile.get("source_path", "").strip()
@@ -1193,6 +1245,13 @@ def sync_folders(source_profile: dict, app_state: 'AppState', selected_rels=None
         if dst_protocol == "local":
             os.makedirs(dst, exist_ok=True)
 
+        if profile_id is not None:
+            total = sum(
+                1 for f in src_files
+                if selected_rels is None or _normalize_rel_path(f["rel"]) in selected_rels
+            )
+            app_state.update_sync_job(profile_id, total=total)
+
         for src_file in src_files:
             rel_path = _normalize_rel_path(src_file["rel"])
             if selected_rels is not None and rel_path not in selected_rels:
@@ -1205,6 +1264,8 @@ def sync_folders(source_profile: dict, app_state: 'AppState', selected_rels=None
             ))
             if unchanged:
                 result["files_skipped"] += 1
+                processed += 1
+                _report(rel_path)
                 continue
 
             temp_path = None
@@ -1234,6 +1295,8 @@ def sync_folders(source_profile: dict, app_state: 'AppState', selected_rels=None
                         os.unlink(temp_path)
                     except OSError:
                         pass
+            processed += 1
+            _report(rel_path)
 
         return result
 
@@ -1593,7 +1656,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
 
         if parsed.path == "/api/sync/run":
-            # POST: Run sync for a profile
+            # POST: Start sync for a profile in the background; progress is
+            # polled via /api/sync/progress
             profile_id = str(data.get("profile_id", "")).strip()
             if not profile_id:
                 return self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Profile ID required."})
@@ -1608,24 +1672,44 @@ class RequestHandler(BaseHTTPRequestHandler):
             if not profile:
                 return self._write_json(HTTPStatus.NOT_FOUND, {"error": "Profile not found."})
 
+            existing_job = self.server.state.get_sync_job(profile_id)
+            if existing_job and existing_job.get("status") == "running":
+                return self._write_json(HTTPStatus.CONFLICT, {"error": "Une synchronisation est déjà en cours pour ce profil."})
+
             selected_rels = data.get("selected_rels")
             if isinstance(selected_rels, list):
                 selected_rels = {_normalize_rel_path(str(r)) for r in selected_rels}
             else:
                 selected_rels = None
 
-            try:
-                result = sync_folders(profile, self.server.state, selected_rels)
-                self.server.state.append_operation_log({
-                    "time_utc": now_utc_iso(),
-                    "event": "sync_executed",
-                    "profile_id": profile_id,
-                    "profile_name": profile.get("name"),
-                    "result": result,
-                })
-                return self._write_json(HTTPStatus.OK, result)
-            except Exception as exc:
-                return self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            self.server.state.start_sync_job(profile_id)
+            state = self.server.state
+
+            def _run_sync_job():
+                try:
+                    result = sync_folders(profile, state, selected_rels, profile_id=profile_id)
+                    state.finish_sync_job(profile_id, result)
+                    state.append_operation_log({
+                        "time_utc": now_utc_iso(),
+                        "event": "sync_executed",
+                        "profile_id": profile_id,
+                        "profile_name": profile.get("name"),
+                        "result": result,
+                    })
+                except Exception as exc:
+                    state.finish_sync_job(profile_id, {"errors": 1, "error_messages": [str(exc)]})
+
+            threading.Thread(target=_run_sync_job, daemon=True).start()
+            return self._write_json(HTTPStatus.OK, {"started": True})
+
+        if parsed.path == "/api/sync/progress":
+            profile_id = str(data.get("profile_id", "")).strip()
+            if not profile_id:
+                return self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Profile ID required."})
+            job = self.server.state.get_sync_job(profile_id)
+            if not job:
+                return self._write_json(HTTPStatus.NOT_FOUND, {"error": "No sync job for this profile."})
+            return self._write_json(HTTPStatus.OK, job)
 
         if parsed.path == "/api/sync/compare":
             profile_id = str(data.get("profile_id", "")).strip()

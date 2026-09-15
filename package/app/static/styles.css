@@ -639,6 +639,11 @@ button:disabled {
 .compare-file-name { flex: 1; }
 .compare-check { flex-shrink: 0; width: 15px; height: 15px; cursor: pointer; }
 
+.compare-progress { padding: 12px 20px; border-top: 1px solid var(--line); flex-shrink: 0; }
+.compare-progress-bar { height: 8px; border-radius: 4px; background: #e7ebf3; overflow: hidden; margin-bottom: 6px; }
+.compare-progress-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s ease; }
+#compareProgressText { font-size: 0.82rem; }
+
 /* ===== PROFILE EDIT MODE ===== */
 .profile-item.editing { background: var(--primary-light); border-left: 3px solid var(--primary); }
 .btn-compare { background: #e0f2fe; color: #0369a1; }
