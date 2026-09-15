@@ -332,8 +332,7 @@ function renderSyncProfiles() {
             <div class="profile-path">${protoLabel(srcProto)} ${escapeHtml(srcHost + src)} → ${protoLabel(dstProto)} ${escapeHtml(dstHost + dst)}</div>
           </div>
           <div class="profile-actions">
-            <button class="btn-small btn-compare" onclick="compareProfile('${escapeHtml(profile.id)}')">&#x1F50D; Comparer</button>
-            <button class="btn-small btn-run" onclick="runSyncProfile('${escapeHtml(profile.id)}')">&#x25B6; Lancer</button>
+            <button class="btn-small btn-run" onclick="compareProfile('${escapeHtml(profile.id)}')">&#x1F50D;&#x25B6; Comparer et lancer</button>
             <button class="btn-small btn-edit" onclick="editProfile('${escapeHtml(profile.id)}')">&#x270F;&#xFE0F; Modifier</button>
             <button class="btn-small btn-delete" onclick="deleteSyncProfile('${escapeHtml(profile.id)}')">✕ Supprimer</button>
           </div>
@@ -505,18 +504,17 @@ async function addSyncProfile() {
   }
 }
 
-async function runSyncProfile(profileId) {
+async function runSyncProfile(profileId, selectedRels) {
   if (syncState.running) {
     showToast('Une synchronisation est déjà en cours.');
     return;
   }
 
-  const confirmed = window.confirm('Démarrer la synchronisation ? Les fichiers seront comparés avant copie.');
-  if (!confirmed) return;
-
   syncState.running = true;
   try {
-    const data = await apiPost('/api/sync/run', { profile_id: profileId });
+    const payload = { profile_id: profileId };
+    if (Array.isArray(selectedRels)) payload.selected_rels = selectedRels;
+    const data = await apiPost('/api/sync/run', payload);
     const panel = document.getElementById('syncStatusPanel');
     const content = document.getElementById('syncStatusContent');
     panel.style.display = 'block';
@@ -524,6 +522,7 @@ async function runSyncProfile(profileId) {
       <p><strong>Synchronisation terminée !</strong></p>
       <p>Fichiers copiés : ${data.files_copied || 0}</p>
       <p>Fichiers ignorés (identiques) : ${data.files_skipped || 0}</p>
+      ${data.files_excluded ? `<p>Fichiers non sélectionnés : ${data.files_excluded}</p>` : ''}
       <p>Erreurs : ${data.errors || 0}</p>
       ${data.error_messages ? '<p style="color: #c0392b;">' + escapeHtml(data.error_messages.join('; ')) + '</p>' : ''}
     `;
@@ -568,6 +567,7 @@ function initCollapsible() {
 
 /* ===== COMPARE MODAL ===== */
 let compareCurrentProfileId = null;
+let compareSelectableFiles = []; // flat list of {rel} for every checkbox shown
 
 function initCompareModal() {
   document.getElementById('compareCloseBtn')?.addEventListener('click', closeCompareModal);
@@ -576,12 +576,36 @@ function initCompareModal() {
     if (e.target === e.currentTarget) closeCompareModal();
   });
   document.getElementById('compareModalLaunchBtn')?.addEventListener('click', () => {
+    const selectedRels = compareSelectableFiles
+      .filter((_, idx) => document.querySelector(`.compare-check[data-index="${idx}"]`)?.checked)
+      .map((f) => f.rel);
+    if (!selectedRels.length) {
+      showToast('Sélectionnez au moins un fichier à copier.');
+      return;
+    }
     closeCompareModal();
-    if (compareCurrentProfileId) runSyncProfile(compareCurrentProfileId);
+    if (compareCurrentProfileId) runSyncProfile(compareCurrentProfileId, selectedRels);
+  });
+  document.getElementById('compareSelectAllBtn')?.addEventListener('click', () => setAllCompareChecks(true));
+  document.getElementById('compareDeselectAllBtn')?.addEventListener('click', () => setAllCompareChecks(false));
+  document.getElementById('compareModalDetails')?.addEventListener('change', (e) => {
+    if (e.target.classList.contains('compare-check')) updateCompareSelectedCount();
   });
   document.getElementById('compareDownloadBtn')?.addEventListener('click', () => {
     if (compareCurrentProfileId) downloadListing(compareCurrentProfileId);
   });
+}
+
+function setAllCompareChecks(checked) {
+  document.querySelectorAll('.compare-check').forEach((el) => { el.checked = checked; });
+  updateCompareSelectedCount();
+}
+
+function updateCompareSelectedCount() {
+  const total = compareSelectableFiles.length;
+  const checked = document.querySelectorAll('.compare-check:checked').length;
+  const el = document.getElementById('compareSelectedCount');
+  if (el) el.textContent = `${checked} / ${total} sélectionné(s)`;
 }
 
 function closeCompareModal() {
@@ -598,6 +622,7 @@ function formatSize(bytes) {
 
 async function compareProfile(profileId) {
   compareCurrentProfileId = profileId;
+  compareSelectableFiles = [];
   const profile = syncState.profiles.find((p) => p.id === profileId);
   document.getElementById('compareModalTitle').textContent = `Comparaison — ${profile?.name || profileId}`;
   document.getElementById('compareModalSubtitle').textContent =
@@ -605,6 +630,7 @@ async function compareProfile(profileId) {
   document.getElementById('compareModalSummary').innerHTML = '<div class="muted" style="padding:4px 0;">Analyse en cours…</div>';
   document.getElementById('compareModalDetails').innerHTML = '';
   document.getElementById('compareModalLaunchBtn').style.display = 'none';
+  document.getElementById('compareSelectAllBar').style.display = 'none';
   document.getElementById('compareOverlay').classList.remove('hidden');
 
   try {
@@ -616,19 +642,25 @@ async function compareProfile(profileId) {
       <div class="compare-stat ok"><span class="stat-value">${data.up_to_date}</span><span class="stat-label">déjà à jour</span></div>
     `;
 
+    const checkboxFor = (f) => {
+      const idx = compareSelectableFiles.length;
+      compareSelectableFiles.push({ rel: f.rel });
+      return `<input type="checkbox" class="compare-check" data-index="${idx}" checked>`;
+    };
+
     let html = '';
     if (data.to_copy.length) {
       html += `<details${!data.to_update.length ? ' open' : ''}>
         <summary>&#x1F4C4; À copier (${data.to_copy.length})</summary>
         <div class="compare-file-list">${data.to_copy.map((f) =>
-          `<div class="compare-file-item"><span>${escapeHtml(f.rel)}</span><span class="compare-file-meta">${formatSize(f.size)}</span></div>`
+          `<div class="compare-file-item">${checkboxFor(f)}<span class="compare-file-name">${escapeHtml(f.rel)}</span><span class="compare-file-meta">${formatSize(f.size)}</span></div>`
         ).join('')}</div></details>`;
     }
     if (data.to_update.length) {
       html += `<details open>
         <summary>&#x1F504; À mettre à jour (${data.to_update.length})</summary>
         <div class="compare-file-list">${data.to_update.map((f) =>
-          `<div class="compare-file-item"><span>${escapeHtml(f.rel)}</span><span class="compare-file-meta">${escapeHtml(f.reason)}</span></div>`
+          `<div class="compare-file-item">${checkboxFor(f)}<span class="compare-file-name">${escapeHtml(f.rel)}</span><span class="compare-file-meta">${escapeHtml(f.reason)}</span></div>`
         ).join('')}</div></details>`;
     }
     if (!data.to_copy.length && !data.to_update.length) {
@@ -638,8 +670,10 @@ async function compareProfile(profileId) {
       html += `<div style="color:#c0392b;padding:8px 0;font-size:.88rem">⚠ ${data.errors.map(escapeHtml).join('<br>')}</div>`;
     }
     document.getElementById('compareModalDetails').innerHTML = html;
-    if (data.to_copy.length || data.to_update.length) {
+    if (compareSelectableFiles.length) {
       document.getElementById('compareModalLaunchBtn').style.display = '';
+      document.getElementById('compareSelectAllBar').style.display = '';
+      updateCompareSelectedCount();
     }
     document.getElementById('compareDownloadBtn').style.display = '';
   } catch (error) {

@@ -39,6 +39,14 @@ ALLOWED_ROOT_PREFIX = "/volume"
 _SKIP_FILENAMES = frozenset({"desktop.ini", "thumbs.db", ".ds_store"})
 _SKIP_DIRNAMES  = frozenset({"@eadir"})  # Synology thumbnail cache
 
+# smbclient "ls" line: "<name>  <attrs>  <size>  <Www Mon dd HH:MM:SS yyyy>".
+# Anchored (greedy name + fixed date suffix) so filenames that themselves
+# contain an "UPPERCASE + digits" run (e.g. "Sissi III 1957 - ...") aren't
+# mistaken for the attrs/size columns.
+_SMB_LS_LINE_RE = re.compile(
+    r"^(.*\S)\s+([A-Z]+)\s+(\d+)\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}\s*$"
+)
+
 
 def _sync_skip_name(name: str) -> bool:
     return name.lower() in _SKIP_FILENAMES
@@ -790,8 +798,16 @@ def list_ftp_files(host: str, base_path: str, user: str, password: str, recursiv
         ftp.encoding = "utf-8"
 
         def scan(dir_path: str) -> None:
+            # cd first, then list the *current* directory (no path argument):
+            # many FTP daemons glob-expand LIST/MLSD path arguments, so a
+            # directory containing "[", "]", "*" or "?" (e.g. "[CD-DVD]")
+            # would silently match nothing and appear empty.
             try:
-                for name, facts in ftp.mlsd(dir_path, facts=["size", "modify", "type"]):
+                ftp.cwd(dir_path)
+            except ftplib.all_errors as exc:
+                raise RuntimeError(f"Impossible d'acceder a {dir_path}: {exc}") from exc
+            try:
+                for name, facts in ftp.mlsd(facts=["size", "modify", "type"]):
                     if name in (".", ".."):
                         continue
                     full = dir_path.rstrip("/") + "/" + name
@@ -809,7 +825,7 @@ def list_ftp_files(host: str, base_path: str, user: str, password: str, recursiv
             except ftplib.all_errors:
                 lines: list = []
                 try:
-                    ftp.retrlines(f"LIST {dir_path}", lines.append)
+                    ftp.retrlines("LIST", lines.append)
                 except ftplib.all_errors as exc:
                     raise RuntimeError(
                         f"Inventaire FTP incomplet dans {dir_path}: {exc}"
@@ -831,11 +847,11 @@ def list_ftp_files(host: str, base_path: str, user: str, password: str, recursiv
                             continue
                         size, mtime = 0, 0.0
                         try:
-                            size = ftp.size(full) or 0
+                            size = ftp.size(name) or 0
                         except ftplib.all_errors:
                             pass
                         try:
-                            mtime = _ftp_mtime(ftp.sendcmd(f"MDTM {full}").split()[-1])
+                            mtime = _ftp_mtime(ftp.sendcmd(f"MDTM {name}").split()[-1])
                         except ftplib.all_errors:
                             pass
                         entries.append({
@@ -897,7 +913,7 @@ def list_smb_files(host: str, path: str, user: str, password: str, recursive: bo
         if line.startswith("\\"):  # directory context printed by recurse
             current_dir = "/" + line.lstrip("\\").replace("\\", "/")
             continue
-        match = re.match(r"^(.*?)\s+([A-Z]+)\s+(\d+)\s+", line)
+        match = _SMB_LS_LINE_RE.match(line)
         if not match:
             continue
         name, attrs = match.group(1).strip(), match.group(2)
@@ -965,7 +981,7 @@ def list_smb_dirs(host: str, path: str, user: str, password: str) -> dict:
         line = line.strip()
         if not line:
             continue
-        match = re.match(r"^(.*?)\s+([A-Z]+)\s+(\d+)\s+", line)
+        match = _SMB_LS_LINE_RE.match(line)
         if not match or "D" not in match.group(2):
             continue
         name = match.group(1).strip()
@@ -1136,11 +1152,17 @@ def _upload_remote_file(profile: dict, rel: str, source: str) -> None:
     raise RuntimeError(f"Destination {protocol.upper()} non supportée pour la copie.")
 
 
-def sync_folders(source_profile: dict, app_state: 'AppState') -> dict:
-    """Synchronize folders unidirectionally between local, FTP and SMB endpoints."""
+def sync_folders(source_profile: dict, app_state: 'AppState', selected_rels=None) -> dict:
+    """Synchronize folders unidirectionally between local, FTP and SMB endpoints.
+
+    If selected_rels is given (a set of relative paths), only files whose
+    relative path is in that set are copied/updated; the rest are left
+    untouched (user unchecked them).
+    """
     result = {
         "files_copied": 0,
         "files_skipped": 0,
+        "files_excluded": 0,
         "errors": 0,
         "error_messages": [],
     }
@@ -1173,6 +1195,9 @@ def sync_folders(source_profile: dict, app_state: 'AppState') -> dict:
 
         for src_file in src_files:
             rel_path = _normalize_rel_path(src_file["rel"])
+            if selected_rels is not None and rel_path not in selected_rels:
+                result["files_excluded"] += 1
+                continue
             dst_file = dst_index.get(rel_path)
             both_have_mtime = dst_file and src_file.get("mtime", 0) > 0 and dst_file.get("mtime", 0) > 0
             unchanged = bool(dst_file and src_file["size"] == dst_file["size"] and (
@@ -1219,7 +1244,7 @@ def sync_folders(source_profile: dict, app_state: 'AppState') -> dict:
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "SynoBatchRenamer/1.1.1"
+    server_version = "SynoBatchRenamer/1.2.0"
 
     def _add_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -1583,8 +1608,14 @@ class RequestHandler(BaseHTTPRequestHandler):
             if not profile:
                 return self._write_json(HTTPStatus.NOT_FOUND, {"error": "Profile not found."})
 
+            selected_rels = data.get("selected_rels")
+            if isinstance(selected_rels, list):
+                selected_rels = {_normalize_rel_path(str(r)) for r in selected_rels}
+            else:
+                selected_rels = None
+
             try:
-                result = sync_folders(profile, self.server.state)
+                result = sync_folders(profile, self.server.state, selected_rels)
                 self.server.state.append_operation_log({
                     "time_utc": now_utc_iso(),
                     "event": "sync_executed",

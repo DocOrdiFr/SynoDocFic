@@ -587,6 +587,16 @@ button:disabled {
 .compare-stat.update .stat-value { color: var(--warn); }
 .compare-stat.ok .stat-value { color: var(--ok); }
 
+.compare-select-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.compare-select-bar .muted { margin-left: auto; font-size: 0.82rem; }
+
 .compare-details {
   overflow-y: auto;
   flex: 1;
@@ -626,6 +636,8 @@ button:disabled {
 }
 .compare-file-item:last-child { border-bottom: 0; }
 .compare-file-meta { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+.compare-file-name { flex: 1; }
+.compare-check { flex-shrink: 0; width: 15px; height: 15px; cursor: pointer; }
 
 /* ===== PROFILE EDIT MODE ===== */
 .profile-item.editing { background: var(--primary-light); border-left: 3px solid var(--primary); }
