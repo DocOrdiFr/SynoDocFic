@@ -1307,7 +1307,7 @@ def sync_folders(source_profile: dict, app_state: 'AppState', selected_rels=None
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "SynoBatchRenamer/1.2.0"
+    server_version = "SynoBatchRenamer/1.3.0"
 
     def _add_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -1424,6 +1424,9 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/":
             return self._serve_static("index.html")
+
+        if parsed.path in {"/app.js", "/styles.css"}:
+            return self._serve_static(parsed.path[1:])
 
         if parsed.path.startswith("/static/"):
             return self._serve_static(parsed.path[len("/static/") :])

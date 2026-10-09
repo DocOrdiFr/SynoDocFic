@@ -6,6 +6,12 @@ const state = {
   browsePath: '/',
 };
 
+// The DSM launcher serves the UI from Webman while the package daemon keeps
+// its private HTTP listener. Keeping this base URL here makes the frontend
+// work both from the daemon and from the DSM application menu.
+const API_BASE = window.SYNO_DOCFIC_API_BASE
+  || `${window.location.protocol}//${window.location.hostname}:8765`;
+
 const els = {
   mainTabs: document.querySelectorAll('.main-tab'),
   mainPanels: document.querySelectorAll('.main-panel'),
@@ -57,7 +63,7 @@ function escapeHtml(text) {
 }
 
 async function apiGet(url) {
-  const res = await fetch(url, { method: 'GET' });
+  const res = await fetch(`${API_BASE}${url}`, { method: 'GET' });
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error || 'Requête échouée');
@@ -66,7 +72,7 @@ async function apiGet(url) {
 }
 
 async function apiPost(url, body) {
-  const res = await fetch(url, {
+  const res = await fetch(`${API_BASE}${url}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -720,7 +726,7 @@ async function compareProfile(profileId) {
 
 async function downloadListing(profileId) {
   try {
-    const res = await fetch('/api/sync/dump-listing', {
+    const res = await fetch(`${API_BASE}/api/sync/dump-listing`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profile_id: profileId }),

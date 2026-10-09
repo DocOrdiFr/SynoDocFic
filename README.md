@@ -1,4 +1,4 @@
-# Syno Batch Renamer (DSM 7 SPK)
+# SynoDocFic 1.3 (DSM 7 SPK)
 
 This project is a full Synology DSM 7 package source for a batch file renaming web app with folder synchronization.
 
@@ -207,14 +207,22 @@ pkgscripts-ng/PkgCreate.py -p <absolute-path-to-SynoDocFic>
 5. Start package.
 6. Open package from Package Center.
 
-The package now provides a DSM embedded launcher UI (`dsmuidir=ui`) that loads the app inside DSM, while the backend still runs on port `8765`.
+Version 1.3 provides a native DSM application entry point. The button created by
+Package Center opens the complete application directly in the DSM window:
+there is no intermediate launcher page and no iframe.
 
-If your DSM session is HTTPS, modern browsers can block the embedded iframe if backend remains HTTP (mixed content). In this case, use the launcher button **Open in a tab** or configure a DSM HTTPS reverse proxy to `127.0.0.1:8765`.
+The package daemon still listens on its private local HTTP endpoint (`8765`) for
+the API. The port is selected and used by the DSM application automatically;
+the user does not need to open it or enter it manually. When the UI is opened
+from DSM over HTTPS, the package API must be exposed through a DSM HTTPS
+reverse proxy to avoid mixed-content blocking, or DSM must be configured to
+allow the package's local endpoint.
 
 ## Runtime Notes
 
 - Service runs as package user (`sc-synobatchrenamer`), not root.
-- UI launcher in DSM desktop: `package/ui/index.html` via `dsmuidir`.
+- Native DSM application UI: `package/app/static/` copied to `package/ui/` by
+  `build.sh` and exposed through `dsmuidir`.
 - Backend API/UI default port: `8765`.
 - Directory operations are restricted to absolute `/volumeX/...` paths.
 - Sync feature:
