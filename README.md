@@ -2,6 +2,9 @@
 
 This project is a full Synology DSM 7 package source for a batch file renaming web app with folder synchronization.
 
+## Important : sur le NAS local, donner au minimum le droit en lecture aux dossiers que vous voulez traiter à sc-synobatchrenamer et pour renommer les fichier le droit ecriture
+
+
 ## Features
 
 ### Batch Renamer
