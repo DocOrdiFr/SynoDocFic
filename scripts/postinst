@@ -5,6 +5,8 @@ INSTALL_DIR="/var/packages/${PACKAGE}/target"
 DSM_APP_NAME="com.docordi.synodocfic"
 DSM_WEBMAN_ROOT="/usr/syno/synoman/webman/3rdparty"
 DSM_WEBMAN_DIR="${DSM_WEBMAN_ROOT}/${DSM_APP_NAME}"
+LEGACY_WEBMAN_ROOT="/usr/syno/www/3rdparty"
+WEBMAN_HTTP_ROOT="/usr/syno/www/webman/3rdparty"
 
 mkdir -p "${INSTALL_DIR}/var" "${INSTALL_DIR}/logs"
 
@@ -17,11 +19,20 @@ rm -rf "/usr/syno/www/3rdparty/${PACKAGE}"
 # package-specific link here also supports manual SPK installations.
 mkdir -p "${DSM_WEBMAN_ROOT}"
 rm -rf "${DSM_WEBMAN_DIR}"
-ln -s "${INSTALL_DIR}/ui" "${DSM_WEBMAN_DIR}"
+cp -R "${INSTALL_DIR}/ui" "${DSM_WEBMAN_DIR}"
 
 # Keep the package-name alias for DSM versions that resolve 3rdparty paths
 # from the package name instead of dsmappname.
 rm -rf "${DSM_WEBMAN_ROOT}/${PACKAGE}"
-ln -s "${INSTALL_DIR}/ui" "${DSM_WEBMAN_ROOT}/${PACKAGE}"
+cp -R "${INSTALL_DIR}/ui" "${DSM_WEBMAN_ROOT}/${PACKAGE}"
+
+# DSM 7.4.1 can serve /webman/3rdparty from the legacy web root. Install the
+# same package UI there so the DSM application iframe resolves on all DSM 7
+# webman layouts.
+for root in "${LEGACY_WEBMAN_ROOT}" "${WEBMAN_HTTP_ROOT}"; do
+  mkdir -p "${root}"
+  rm -rf "${root}/${PACKAGE}"
+  cp -R "${INSTALL_DIR}/ui" "${root}/${PACKAGE}"
+done
 
 exit 0

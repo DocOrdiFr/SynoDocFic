@@ -7,5 +7,6 @@ PACKAGE="synobatchrenamer"
 rm -rf "/usr/syno/www/3rdparty/${PACKAGE}"
 rm -rf "/usr/syno/synoman/webman/3rdparty/${PACKAGE}"
 rm -rf "/usr/syno/synoman/webman/3rdparty/com.docordi.synodocfic"
+rm -rf "/usr/syno/www/webman/3rdparty/${PACKAGE}"
 
 exit 0

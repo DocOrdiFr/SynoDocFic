@@ -1,17 +1,17 @@
-Ext.define('SYNO.SDS.SynoDocFic.Instance', {
+Ext.define('SYNO.SDS.SynoDocFic13.Instance', {
   extend: 'SYNO.SDS.AppInstance',
-  appWindowName: 'SYNO.SDS.SynoDocFic.Main',
+  appWindowName: 'SYNO.SDS.SynoDocFic13.Main',
 
   constructor: function () {
     this.callParent(arguments);
   }
 });
 
-Ext.define('SYNO.SDS.SynoDocFic.Main', {
+Ext.define('SYNO.SDS.SynoDocFic13.Main', {
   extend: 'SYNO.SDS.AppWindow',
 
   constructor: function (cfg) {
-    var appUrl = 'http://' + window.location.hostname + ':8765/';
+    var appUrl = '/webman/3rdparty/synobatchrenamer/index.html';
     var config = Ext.apply({
       title: 'SynoDocFic',
       resizable: true,
