@@ -211,8 +211,18 @@ Version 1.3 provides a native DSM application entry point. The button created by
 Package Center opens the complete application directly in the DSM window:
 there is no intermediate launcher page and no iframe.
 
+The DSM desktop entry is declared by `dsmappname` in `INFO` and the
+`package/ui/config` file. After installing or upgrading the package, DSM may
+need a logout/login or a browser refresh before the **SynoDocFic** icon appears
+in the main menu, just as for other DSM applications.
+
+The DSM desktop integration uses a real `type: "app"` definition and
+`package/ui/Main.js`. DSM creates the application window and embeds the local
+package service inside it; it is not launched as a separate browser tab.
+
 The package daemon still listens on its private local HTTP endpoint (`8765`) for
-the API. The port is selected and used by the DSM application automatically;
+the API. This is an internal service port and is not declared as `adminport`;
+the DSM application uses it automatically;
 the user does not need to open it or enter it manually. When the UI is opened
 from DSM over HTTPS, the package API must be exposed through a DSM HTTPS
 reverse proxy to avoid mixed-content blocking, or DSM must be configured to

@@ -2,12 +2,26 @@
 
 PACKAGE="synobatchrenamer"
 INSTALL_DIR="/var/packages/${PACKAGE}/target"
-WEBMAN_DIR="/usr/syno/www/3rdparty/${PACKAGE}"
+DSM_APP_NAME="com.docordi.synodocfic"
+DSM_WEBMAN_ROOT="/usr/syno/synoman/webman/3rdparty"
+DSM_WEBMAN_DIR="${DSM_WEBMAN_ROOT}/${DSM_APP_NAME}"
 
 mkdir -p "${INSTALL_DIR}/var" "${INSTALL_DIR}/logs"
 
-# Enregistrer l'UI aupres du webman DSM (rend /webman/3rdparty/synobatchrenamer/ accessible)
-rm -rf "${WEBMAN_DIR}"
-ln -s "${INSTALL_DIR}/ui" "${WEBMAN_DIR}"
+# Remove the legacy link used by versions 1.2/1.3. It is not a DSM desktop
+# application registration and can make DSM keep the old browser launch path.
+rm -rf "/usr/syno/www/3rdparty/${PACKAGE}"
+
+# DSM reads ui/config and its icons from this webman location when building
+# the desktop menu entry. dsmuidir normally creates it, but creating the
+# package-specific link here also supports manual SPK installations.
+mkdir -p "${DSM_WEBMAN_ROOT}"
+rm -rf "${DSM_WEBMAN_DIR}"
+ln -s "${INSTALL_DIR}/ui" "${DSM_WEBMAN_DIR}"
+
+# Keep the package-name alias for DSM versions that resolve 3rdparty paths
+# from the package name instead of dsmappname.
+rm -rf "${DSM_WEBMAN_ROOT}/${PACKAGE}"
+ln -s "${INSTALL_DIR}/ui" "${DSM_WEBMAN_ROOT}/${PACKAGE}"
 
 exit 0

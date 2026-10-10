@@ -1,0 +1,20 @@
+{
+  "Main.js": {
+    "SYNO.SDS.SynoDocFic.Instance": {
+      "type": "app",
+      "version": "1.3.0",
+      "desc": "Renommage et synchronisation de fichiers",
+      "icon": "images/icon_{0}.png",
+      "title": "SynoDocFic",
+      "allowMultiInstance": false,
+      "appWindow": "SYNO.SDS.SynoDocFic.Main",
+      "depend": []
+    },
+    "SYNO.SDS.SynoDocFic.Main": {
+      "type": "lib",
+      "title": "SynoDocFic",
+      "icon": "images/icon_{0}.png",
+      "depend": []
+    }
+  }
+}
