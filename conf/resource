@@ -1,4 +1,12 @@
 {
+  "web-config": {
+    "nginx-static-config": {
+      "enable": [{
+        "type": "dsm",
+        "relpath": "nginx/api.conf"
+      }]
+    }
+  },
   "data_share": {
     "name": "synobatchrenamer"
   },

@@ -177,6 +177,12 @@ Request:
 }
 ```
 
+## Build locally (Windows or Linux)
+
+Run `python build.py` with Python 3. The script creates
+`SynoDocFic-1.3.2-0004.spk`, checks the icon dimensions, normalizes shell
+scripts to LF with executable permissions, and packages the canonical UI.
+
 ## Build `.spk` using Synology Package Toolkit
 
 > Build commands are run on Linux (native, VM, or Docker) with Synology Package Toolkit installed.
@@ -207,32 +213,44 @@ pkgscripts-ng/PkgCreate.py -p <absolute-path-to-SynoDocFic>
 5. Start package.
 6. Open package from Package Center.
 
-Version 1.3 provides a native DSM application entry point. The button created by
-Package Center opens the complete application directly in the DSM window:
-there is no intermediate launcher page and no iframe.
+Version 1.3.2 opens an ExtJS DSM desktop window containing the existing web UI
+in a same-origin iframe. The launcher uses `Ext.extend`, matching DSM's desktop
+API, and declares its window dependency in `ui/config`.
 
-The DSM desktop entry is declared by `dsmappname` in `INFO` and the
-`package/ui/config` file. After installing or upgrading the package, DSM may
-need a logout/login or a browser refresh before the **SynoDocFic** icon appears
-in the main menu, just as for other DSM applications.
+DSM registers `target/ui` using `dsmuidir="ui"`. Install scripts do not write to
+system web roots. Menu icons come from `ui/images/icon_{size}.png`; Package Center
+uses separate 64px and 256px PNG files.
 
-The DSM desktop integration uses a real `type: "app"` definition and
-`package/ui/Main.js`. DSM creates the application window and embeds the local
-package service inside it; it is not launched as a separate browser tab.
+The `web-config` resource registers `package/nginx/api.conf` in the DSM nginx
+server. Calls to `/webman/3rdparty/synobatchrenamer/api/` are forwarded to the
+HTTP backend at `127.0.0.1:8765/api/`. The browser uses DSM's current HTTP/HTTPS
+origin, without a separate certificate or a manually configured reverse proxy.
+The package requests nginx reloads through INFO's service restart fields.
+This resource requires DSM 7.2 or newer.
 
-The package daemon still listens on its private local HTTP endpoint (`8765`) for
-the API. This is an internal service port and is not declared as `adminport`;
-the DSM application uses it automatically;
-the user does not need to open it or enter it manually. When the UI is opened
-from DSM over HTTPS, the package API must be exposed through a DSM HTTPS
-reverse proxy to avoid mixed-content blocking, or DSM must be configured to
-allow the package's local endpoint.
+### Verification on the NAS
+
+1. Install `SynoDocFic-1.3.2-0004.spk` through Package Center as an upgrade.
+2. Sign out of DSM, sign in again, then refresh the browser cache (Ctrl+F5).
+3. Check the SynoDocFic icon in the main menu and open the application.
+4. Check that it opens inside the DSM desktop, can be resized, and can be closed
+   and reopened without creating another browser tab.
+5. Over DSM HTTPS, browse a folder and request a rename preview before applying
+   any operation. In browser developer tools, API requests should use the DSM
+   origin and `/webman/3rdparty/synobatchrenamer/api/`, never HTTPS port 8765.
+6. If the icon stays blank, inspect the network request for
+   `/webman/3rdparty/synobatchrenamer/images/icon_64.png` (status and response).
+   If startup fails, inspect `/var/log/synopkg.log` for resource errors.
+
+The launcher and nginx resource have been checked locally, but actual DSM 7.4.1
+window behavior and package lifecycle still require validation on a NAS.
+The proxy does not add DSM authentication to the existing backend API.
 
 ## Runtime Notes
 
 - Service runs as package user (`sc-synobatchrenamer`), not root.
 - Native DSM application UI: `package/app/static/` copied to `package/ui/` by
-  `build.sh` and exposed through `dsmuidir`.
+  `build.py` and exposed through `dsmuidir`.
 - Backend API/UI default port: `8765`.
 - Directory operations are restricted to absolute `/volumeX/...` paths.
 - Sync feature:

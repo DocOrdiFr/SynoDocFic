@@ -6,12 +6,11 @@ const state = {
   browsePath: '/',
 };
 
-// The DSM launcher serves the UI from Webman while the package daemon keeps
-// its private HTTP listener. Keeping this base URL here makes the frontend
-// work both from the daemon and from the DSM application menu.
+// Use DSM's same-origin proxy inside Webman; keep direct HTTP access working.
 const API_BASE = window.SYNO_DOCFIC_API_BASE
-  || `${window.location.protocol}//${window.location.hostname}:8765`;
-
+  ?? (window.location.pathname.startsWith('/webman/3rdparty/synobatchrenamer/')
+    ? '/webman/3rdparty/synobatchrenamer'
+    : '');
 const els = {
   mainTabs: document.querySelectorAll('.main-tab'),
   mainPanels: document.querySelectorAll('.main-panel'),

@@ -2,13 +2,13 @@
   "Main.js": {
     "SYNO.SDS.SynoDocFic13.Instance": {
       "type": "app",
-      "version": "1.3.0",
+      "version": "1.3.2-0004",
       "desc": "Renommage et synchronisation de fichiers",
       "icon": "images/icon_{0}.png",
       "title": "SynoDocFic",
       "allowMultiInstance": false,
       "appWindow": "SYNO.SDS.SynoDocFic13.Main",
-      "depend": []
+      "depend": ["SYNO.SDS.SynoDocFic13.Main"]
     },
     "SYNO.SDS.SynoDocFic13.Main": {
       "type": "lib",

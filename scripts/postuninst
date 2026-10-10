@@ -1,12 +1,3 @@
 #!/bin/sh
-
-PACKAGE="synobatchrenamer"
-
-# Supprimer l'ancien lien d'une version precedente. L'integration DSM native
-# est geree par dsmuidir et ui/config.
-rm -rf "/usr/syno/www/3rdparty/${PACKAGE}"
-rm -rf "/usr/syno/synoman/webman/3rdparty/${PACKAGE}"
-rm -rf "/usr/syno/synoman/webman/3rdparty/com.docordi.synodocfic"
-rm -rf "/usr/syno/www/webman/3rdparty/${PACKAGE}"
-
+# DSM releases dsmuidir and the web-config resource automatically.
 exit 0
