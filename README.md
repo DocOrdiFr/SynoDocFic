@@ -183,7 +183,7 @@ Request:
 ## Build locally (Windows or Linux)
 
 Run `python build.py` with Python 3. The script creates
-`SynoDocFic-1.3.2-0004.spk`, checks the icon dimensions, normalizes shell
+`SynoDocFic-1.3.3.spk`, checks the icon dimensions, normalizes shell
 scripts to LF with executable permissions, and packages the canonical UI.
 
 ## Build `.spk` using Synology Package Toolkit
@@ -233,7 +233,7 @@ This resource requires DSM 7.2 or newer.
 
 ### Verification on the NAS
 
-1. Install `SynoDocFic-1.3.2-0004.spk` through Package Center as an upgrade.
+1. Install `SynoDocFic-1.3.3.spk` through Package Center as an upgrade.
 2. Sign out of DSM, sign in again, then refresh the browser cache (Ctrl+F5).
 3. Check the SynoDocFic icon in the main menu and open the application.
 4. Check that it opens inside the DSM desktop, can be resized, and can be closed
@@ -274,3 +274,8 @@ The proxy does not add DSM authentication to the existing backend API.
 - Restrict network access by DSM firewall.
 - Add DSM authentication integration or reverse-proxy auth if needed.
 - Add automated tests for edge-case rename plans.
+
+## 1.3.3
+
+- Preserve leading and trailing spaces in the text to remove, including space-only input.
+- Refresh the cached UI script when upgrading.

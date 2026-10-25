@@ -44,7 +44,7 @@ function showToast(message) {
 
 function getModeAndValue() {
   if (state.subTab === 'remove') {
-    return { mode: 'remove', value: els.removeValue.value.trim() };
+    return { mode: 'remove', value: els.removeValue.value };
   }
   if (state.subTab === 'prefix') {
     return { mode: 'prefix', value: els.prefixValue.value };

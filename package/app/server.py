@@ -1307,7 +1307,7 @@ def sync_folders(source_profile: dict, app_state: 'AppState', selected_rels=None
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "SynoBatchRenamer/1.3.0"
+    server_version = "SynoBatchRenamer/1.3.3"
 
     def _add_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
