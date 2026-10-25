@@ -1,0 +1,18 @@
+[
+  {
+    "step_title": "Reglages SynoDocFic",
+    "items": [
+      {
+        "type": "multiselect",
+        "desc": "Les profils et l'historique sont conserves pour une reinstallation sur le meme volume. Les fichiers synchronises ne sont jamais supprimes.",
+        "subitems": [
+          {
+            "key": "synodocfic_delete_settings",
+            "desc": "Effacer definitivement les reglages, les identifiants enregistres, l'historique et les journaux de l'application",
+            "defaultValue": false
+          }
+        ]
+      }
+    ]
+  }
+]

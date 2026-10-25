@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
-
-# DSM registers target/ui and its icons using INFO:dsmuidir.
-# Do not copy UI files into system web roots: package scripts run unprivileged.
-INSTALL_DIR="${SYNOPKG_PKGDEST:-/var/packages/synobatchrenamer/target}"
-mkdir -p "${INSTALL_DIR}/var" "${INSTALL_DIR}/logs"
+. "$(dirname "$0")/storage-functions"
+prepare_storage
+mkdir -p "$INSTALL_DIR/var" "$INSTALL_DIR/logs"
+printf '%s\n' "$DATA_DIR" > "$INSTALL_DIR/var/data-dir"
+chmod 644 "$INSTALL_DIR/var/data-dir"
 exit 0

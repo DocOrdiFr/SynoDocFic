@@ -1,3 +1,17 @@
 #!/bin/sh
-# DSM releases dsmuidir and the web-config resource automatically.
+set -eu
+# Never delete settings on an upgrade, even if a wizard variable is present.
+if [ "${SYNOPKG_PKG_STATUS:-}" = "UNINSTALL" ] &&
+   [ "${synodocfic_delete_settings:-false}" = "true" ]; then
+  . "$(dirname "$0")/storage-functions"
+  storage_paths
+  # Fixed filenames only; do not recursively delete a computed directory.
+  rm -f "$DATA_DIR/sync_profiles.json" "$DATA_DIR/sync_profiles.tmp" \
+    "$DATA_DIR/history.json" "$DATA_DIR/history.tmp"
+  if [ ! -L "$DATA_DIR/logs" ]; then
+    rm -f "$DATA_DIR/logs/operations.log"
+    rmdir "$DATA_DIR/logs" 2>/dev/null || :
+  fi
+  rmdir "$DATA_DIR" 2>/dev/null || :
+fi
 exit 0

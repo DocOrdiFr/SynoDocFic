@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+# Save legacy settings before DSM removes the old package target.
+. "$(dirname "$0")/storage-functions"
+prepare_storage
+exit 0

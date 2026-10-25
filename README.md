@@ -183,7 +183,7 @@ Request:
 ## Build locally (Windows or Linux)
 
 Run `python build.py` with Python 3. The script creates
-`SynoDocFic-1.3.3.spk`, checks the icon dimensions, normalizes shell
+`SynoDocFic-1.3.4-0001.spk`, checks the icon dimensions, normalizes shell
 scripts to LF with executable permissions, and packages the canonical UI.
 
 ## Build `.spk` using Synology Package Toolkit
@@ -233,7 +233,7 @@ This resource requires DSM 7.2 or newer.
 
 ### Verification on the NAS
 
-1. Install `SynoDocFic-1.3.3.spk` through Package Center as an upgrade.
+1. Install `SynoDocFic-1.3.4-0001.spk` through Package Center as an upgrade.
 2. Sign out of DSM, sign in again, then refresh the browser cache (Ctrl+F5).
 3. Check the SynoDocFic icon in the main menu and open the application.
 4. Check that it opens inside the DSM desktop, can be resized, and can be closed
@@ -263,10 +263,14 @@ The proxy does not add DSM authentication to the existing backend API.
   - FTP browsing, comparison and copy use the Python FTP client.
   - Files are compared by size + mtime; identical files are not re-copied.
   - Recursive mode includes subdirectories; non-recursive copies files only from source root.
-- Persisted runtime files:
-  - History: `target/var/history.json`
-  - Sync profiles: `target/var/sync_profiles.json`
-  - Logs: `target/var/logs/operations.log` and `target/logs/service.log`
+- Persisted runtime files (outside the installation directory):
+  - Sync profiles: `/var/packages/synobatchrenamer/var/settings/sync_profiles.json`
+  - History: `/var/packages/synobatchrenamer/var/settings/history.json`
+  - Operations log: `/var/packages/synobatchrenamer/var/settings/logs/operations.log`
+  - Service log remains in `target/logs/service.log`.
+  - DSM manages this persistent directory under `/volumeX/@appdata/synobatchrenamer/settings`. Reinstall on the same volume
+    to recover saved settings. The directory is private (0700), owned by the
+    package user; profiles include saved endpoint credentials.
 
 ## Production Hardening Tips
 
@@ -279,3 +283,45 @@ The proxy does not add DSM authentication to the existing backend API.
 
 - Preserve leading and trailing spaces in the text to remove, including space-only input.
 - Refresh the cached UI script when upgrading.
+
+## 1.3.4
+
+- Store profiles and rename history outside the package target, preserving them
+  across upgrades and uninstall/reinstall on the same volume.
+- Migrate `target/var/sync_profiles.json` and `history.json` before the old
+  target is removed on upgrade. Existing retained settings take precedence.
+- Uninstall wizard: keep settings by default, or explicitly check the option
+  to erase settings, saved credentials, history and application logs. This never
+  deletes synchronized source or destination files. Upgrades ignore this option.
+- All lifecycle scripts and the backend run as the package user. DSM creates
+  and owns the persistent FHS `var` directory; no root override is requested.
+
+### First upgrade from 1.3.3
+
+Upgrade directly to 1.3.4 to migrate existing settings automatically. If DSM
+requires uninstalling the old version first, **back up** these files before
+uninstalling, using SSH or an administrator's assistance:
+
+```
+/var/packages/synobatchrenamer/target/var/sync_profiles.json
+/var/packages/synobatchrenamer/target/var/history.json
+```
+
+After installing 1.3.4, stop it, restore the saved files into
+`/var/packages/synobatchrenamer/var/settings/`, set their owner to `sc-synobatchrenamer` and mode
+to `0600`, then restart. Protect the backup: profiles contain saved credentials.
+The 1.3.3 uninstaller cannot be changed by installing a later SPK.
+
+Installation and application startup of build 1.3.4-0001 were confirmed on a NAS.
+Local tests cover migration, keep/reinstall and explicit erase; these lifecycle
+scenarios still require validation on DSM.
+Wizard reference: https://help.synology.com/developer-guide/synology_package/wizard/WIZARD_UIFILES_v2.html
+
+### Corrected build 1.3.4-0001
+
+The first 1.3.4 archive was rejected by DSM because its lifecycle scripts
+requested root. This build removes every root override and uses DSM's native
+persistent FHS directory (`SYNOPKG_PKGVAR/settings`), instead of creating a folder
+at the volume root. It preserves the same uninstall choice and migration from
+1.3.3. FHS reference:
+https://help.synology.com/developer-guide/integrate_dsm/fhs.html

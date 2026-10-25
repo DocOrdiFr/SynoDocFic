@@ -10,7 +10,7 @@ SYNO.SDS.SynoDocFic13.Instance = Ext.extend(SYNO.SDS.AppInstance, {
 
 SYNO.SDS.SynoDocFic13.Main = Ext.extend(SYNO.SDS.AppWindow, {
   constructor: function (cfg) {
-    var appUrl = '/webman/3rdparty/synobatchrenamer/index.html?v=1.3.3';
+    var appUrl = '/webman/3rdparty/synobatchrenamer/index.html?v=1.3.4-0001';
     SYNO.SDS.SynoDocFic13.Main.superclass.constructor.call(this, Ext.apply({
       title: 'SynoDocFic',
       resizable: true,

@@ -53,7 +53,7 @@ def build():
         for name in ("PACKAGE_ICON.PNG", "PACKAGE_ICON_256.PNG"):
             add(archive, name, (ROOT / name).read_bytes())
         add(archive, "package.tgz", payload.getvalue())
-        for folder in ("conf", "scripts"):
+        for folder in ("conf", "scripts", "WIZARD_UIFILES"):
             for path in sorted((ROOT / folder).iterdir()):
                 if path.is_file():
                     add(archive, f"{folder}/{path.name}",

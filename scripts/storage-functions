@@ -1,0 +1,35 @@
+#!/bin/sh
+# Lifecycle helpers. All scripts run as the unprivileged package user.
+storage_paths() {
+  INSTALL_DIR="${SYNOPKG_PKGDEST:-/var/packages/synobatchrenamer/target}"
+  # DSM creates and owns this persistent FHS directory for the package user.
+  PKG_VAR="${SYNOPKG_PKGVAR:-/var/packages/synobatchrenamer/var}"
+  case "$PKG_VAR" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  DATA_DIR="${PKG_VAR}/settings"
+  [ ! -L "$DATA_DIR" ] || return 1
+}
+prepare_storage() {
+  storage_paths
+  umask 077
+  mkdir -p "$DATA_DIR"
+  for name in sync_profiles.json history.json; do
+    [ ! -L "$DATA_DIR/$name" ] || return 1
+    if [ ! -e "$DATA_DIR/$name" ] && [ -f "$INSTALL_DIR/var/$name" ]; then
+      cp "$INSTALL_DIR/var/$name" "$DATA_DIR/$name"
+    fi
+    if [ -f "$DATA_DIR/$name" ]; then
+      chmod 600 "$DATA_DIR/$name"
+    fi
+  done
+  chmod 700 "$DATA_DIR"
+  [ ! -L "$DATA_DIR/logs" ] || return 1
+  mkdir -p "$DATA_DIR/logs"
+  chmod 700 "$DATA_DIR/logs"
+  if [ -e "$DATA_DIR/logs/operations.log" ]; then
+    [ ! -L "$DATA_DIR/logs/operations.log" ] || return 1
+    chmod 600 "$DATA_DIR/logs/operations.log"
+  fi
+}
