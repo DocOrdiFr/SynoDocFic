@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -60,8 +61,9 @@ with tempfile.TemporaryDirectory(prefix='synodocfic-test-') as temporary:
     run('postinst', 'INSTALL', pkgvar='relative/path', success=False)
     print('PASS: migration, reinstall, upgrade deletion guard, explicit erase, FHS path guard')
 
-with tarfile.open(ROOT / 'SynoDocFic-1.3.4-0001.spk') as archive:
-    assert b'version="1.3.4-0001"' in archive.extractfile('INFO').read()
+version = re.search(r'^version="([^"]+)"', (ROOT / 'INFO').read_text(), re.M).group(1)
+with tarfile.open(ROOT / f'SynoDocFic-{version}.spk') as archive:
+    assert f'version="{version}"'.encode() in archive.extractfile('INFO').read()
     privilege = json.load(archive.extractfile('conf/privilege'))
     assert privilege['defaults']['run-as'] == 'package'
     assert not privilege.get('ctrl-script'), 'No privileged lifecycle scripts allowed'

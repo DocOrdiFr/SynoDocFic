@@ -19,6 +19,8 @@ const els = {
   directoryInput: document.getElementById('directoryInput'),
   recursiveInput: document.getElementById('recursiveInput'),
   removeValue: document.getElementById('removeValue'),
+  replaceFind: document.getElementById('replaceFind'),
+  replaceWith: document.getElementById('replaceWith'),
   prefixValue: document.getElementById('prefixValue'),
   suffixValue: document.getElementById('suffixValue'),
   previewBtn: document.getElementById('previewBtn'),
@@ -45,6 +47,9 @@ function showToast(message) {
 function getModeAndValue() {
   if (state.subTab === 'remove') {
     return { mode: 'remove', value: els.removeValue.value };
+  }
+  if (state.subTab === 'replace') {
+    return { mode: 'replace', value: els.replaceFind.value, replacement: els.replaceWith.value };
   }
   if (state.subTab === 'prefix') {
     return { mode: 'prefix', value: els.prefixValue.value };
@@ -131,14 +136,19 @@ function renderPreview(items, summary) {
 async function generatePreview() {
   const directory = els.directoryInput.value.trim();
   const recursive = els.recursiveInput.checked;
-  const { mode, value } = getModeAndValue();
+  const { mode, value, replacement } = getModeAndValue();
 
   if (!directory) {
     showToast('Veuillez sélectionner un répertoire.');
     return;
   }
 
-  const payload = { directory, recursive, mode, value, limit: 20000 };
+  if (mode === 'replace' && value.length === 0) {
+    showToast('Veuillez saisir le texte à trouver.');
+    return;
+  }
+
+  const payload = { directory, recursive, mode, value, replacement, limit: 20000 };
 
   els.previewBtn.disabled = true;
   els.applyBtn.disabled = true;
@@ -249,7 +259,9 @@ async function loadHistory() {
     els.historyList.innerHTML = items
       .map((item) => {
         const req = item.request || {};
-        const op = `${req.mode || 'n/a'}: ${req.value || ''}`.trim();
+        const op = req.mode === 'replace'
+          ? `Remplacer : ${JSON.stringify(req.value)} → ${JSON.stringify(req.replacement ?? '')}`
+          : `${req.mode || 'n/a'}: ${req.value || ''}`.trim();
         const count = (item.entries || []).filter((e) => e.status === 'renamed').length;
         const undone = item.undone ? ' (annulé)' : '';
         return `

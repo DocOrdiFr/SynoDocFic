@@ -1,16 +1,34 @@
-# SynoDocFic 1.3 (DSM 7 SPK)
+# SynoDocFic 1.3.5 (DSM 7 SPK)
 
 This project is a full Synology DSM 7 package source for a batch file renaming web app with folder synchronization.
 
 ## Important : sur le NAS local, donner au minimum le droit en lecture aux dossiers que vous voulez traiter à sc-synobatchrenamer et pour renommer les fichier le droit ecriture
 
 
+## Nouveauté de la version 1.3.5
+
+L’onglet **Remplacer du texte** permet de saisir le texte à trouver et celui à
+mettre à la place. Tous les résultats exacts sont remplacés dans le nom du
+fichier, en conservant l’extension finale et sa casse.
+
+- Un simple espace est accepté comme remplacement, ainsi que les espaces en
+  début ou en fin de texte. Un remplacement vide supprime le texte trouvé.
+- Exemple : remplacer `.` par un espace transforme `Mon.fichier.test.pdf` en
+  `Mon fichier test.pdf`.
+- L’aperçu, la gestion des doublons et l’annulation restent disponibles.
+- Pour un nom comme `archive.tar.gz`, la partie protégée est la dernière
+  extension, `.gz`.
+
+Le paquet publié est **SynoDocFic-1.3.5-0001.spk**. Il s’installe directement
+par-dessus la version actuelle et conserve les réglages de synchronisation.
+
 ## Features
 
 ### Batch Renamer
 - Select target directory on NAS (`/volumeX/...`)
 - Optional recursive mode (include subdirectories)
-- 3 rename modes via tabs:
+- 4 rename modes via tabs:
+  - Replace text with another string (including a single space or empty text)
   - Remove text from filename
   - Add prefix
   - Add suffix
@@ -183,7 +201,7 @@ Request:
 ## Build locally (Windows or Linux)
 
 Run `python build.py` with Python 3. The script creates
-`SynoDocFic-1.3.4-0001.spk`, checks the icon dimensions, normalizes shell
+`SynoDocFic-1.3.5-0001.spk`, checks the icon dimensions, normalizes shell
 scripts to LF with executable permissions, and packages the canonical UI.
 
 ## Build `.spk` using Synology Package Toolkit
@@ -233,7 +251,7 @@ This resource requires DSM 7.2 or newer.
 
 ### Verification on the NAS
 
-1. Install `SynoDocFic-1.3.4-0001.spk` through Package Center as an upgrade.
+1. Install `SynoDocFic-1.3.5-0001.spk` through Package Center as an upgrade.
 2. Sign out of DSM, sign in again, then refresh the browser cache (Ctrl+F5).
 3. Check the SynoDocFic icon in the main menu and open the application.
 4. Check that it opens inside the DSM desktop, can be resized, and can be closed
@@ -325,3 +343,19 @@ persistent FHS directory (`SYNOPKG_PKGVAR/settings`), instead of creating a fold
 at the volume root. It preserves the same uninstall choice and migration from
 1.3.3. FHS reference:
 https://help.synology.com/developer-guide/integrate_dsm/fhs.html
+
+## 1.3.5
+
+- Add “Remplacer du texte” with separate find and replacement fields.
+- Replace every exact, case-sensitive occurrence in the filename stem (preserving
+  the extension after the last dot), preserving leading/trailing spaces and space-only input.
+- Empty replacement removes matching text; empty search is rejected.
+- Preview, collision handling and undo use the existing rename workflow.
+- API: use `mode: "replace"`, `value` for the search text and `replacement`
+  for the replacement text (for example `" "` for a single space).
+
+### Corrected build 1.3.5-0001
+
+Text replacement preserves the final extension, including its case. For example,
+replacing `.` with a space changes `Mon.fichier.test.pdf` to `Mon fichier test.pdf`.
+For compound names such as `archive.tar.gz`, only the final `.gz` is protected.

@@ -69,6 +69,7 @@
         <div class="card-body">
           <div class="sub-tabs" role="tablist">
             <button type="button" class="sub-tab active" data-subtab="remove">Supprimer du texte</button>
+            <button type="button" class="sub-tab" data-subtab="replace">Remplacer du texte</button>
             <button type="button" class="sub-tab" data-subtab="prefix">Ajouter un préfixe</button>
             <button type="button" class="sub-tab" data-subtab="suffix">Ajouter un suffixe</button>
           </div>
@@ -76,6 +77,13 @@
             <div class="sub-panel active" data-subtab-panel="remove">
               <label for="removeValue">Texte à supprimer des noms de fichiers</label>
               <input id="removeValue" type="text" placeholder="brouillon">
+            </div>
+            <div class="sub-panel" data-subtab-panel="replace">
+              <label for="replaceFind">Texte à trouver dans les noms de fichiers</label>
+              <input id="replaceFind" type="text" placeholder="_" aria-describedby="replaceHelp">
+              <label for="replaceWith">Texte de remplacement</label>
+              <input id="replaceWith" type="text" placeholder="Nouveau texte ou espace" aria-describedby="replaceHelp">
+              <p id="replaceHelp" class="muted">Toutes les occurrences exactes sont remplacées dans le nom, en conservant l’extension (la partie après le dernier point). Les espaces sont conservés : vous pouvez saisir un simple espace, ou laisser ce champ vide pour supprimer le texte trouvé.</p>
             </div>
             <div class="sub-panel" data-subtab-panel="prefix">
               <label for="prefixValue">Préfixe à ajouter</label>
@@ -312,6 +320,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.3.4-0001"></script>
+  <script src="app.js?v=1.3.5-0001"></script>
 </body>
 </html>

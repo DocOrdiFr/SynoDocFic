@@ -305,9 +305,14 @@ def split_name(filename: str):
     return base, ext
 
 
-def transform_filename(original_name: str, mode: str, value: str) -> str:
+def transform_filename(original_name: str, mode: str, value: str, replacement: str = "") -> str:
     if mode == "remove":
         new_name = original_name.replace(value, "") if value else original_name
+    elif mode == "replace":
+        if not value:
+            raise ValueError("Text to find cannot be empty.")
+        base, ext = split_name(original_name)
+        new_name = base.replace(value, replacement) + ext
     elif mode == "prefix":
         new_name = f"{value}{original_name}"
     elif mode == "suffix":
@@ -369,12 +374,12 @@ def iter_target_files(root_dir: str, recursive: bool, limit: int):
             return
 
 
-def build_preview_plan(directory: str, recursive: bool, mode: str, value: str, limit: int):
+def build_preview_plan(directory: str, recursive: bool, mode: str, value: str, limit: int, replacement: str = ""):
     raw_items = []
     for path_str in iter_target_files(directory, recursive, limit + 1):
         old_path = Path(path_str)
         old_name = old_path.name
-        new_name = transform_filename(old_name, mode, value)
+        new_name = transform_filename(old_name, mode, value, replacement)
         raw_items.append(
             {
                 "old_path": old_path.as_posix(),
@@ -1307,7 +1312,7 @@ def sync_folders(source_profile: dict, app_state: 'AppState', selected_rels=None
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "SynoBatchRenamer/1.3.4-0001"
+    server_version = "SynoBatchRenamer/1.3.5-0001"
 
     def _add_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -1442,19 +1447,23 @@ class RequestHandler(BaseHTTPRequestHandler):
             recursive = bool(data.get("recursive", False))
             mode = str(data.get("mode", "")).strip().lower()
             value = sanitize_transform_value(str(data.get("value", "")))
+            replacement = sanitize_transform_value(str(data.get("replacement", "")))
             limit = int(data.get("limit", MAX_PREVIEW_ITEMS))
             limit = min(max(limit, 1), MAX_PREVIEW_ITEMS)
 
-            if mode not in {"remove", "prefix", "suffix"}:
+            if mode not in {"remove", "replace", "prefix", "suffix"}:
                 return self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid mode."})
             if not is_valid_target_directory(directory):
                 return self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid directory. Use an absolute /volumeX path."})
+
+            if mode == "replace" and not value:
+                return self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Le texte à trouver ne peut pas être vide."})
 
             if mode == "remove" and not value:
                 return self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Text to remove cannot be empty."})
 
             try:
-                plan, summary = build_preview_plan(directory, recursive, mode, value, limit)
+                plan, summary = build_preview_plan(directory, recursive, mode, value, limit, replacement)
             except Exception as exc:
                 return self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
 
@@ -1467,6 +1476,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "recursive": recursive,
                     "mode": mode,
                     "value": value,
+                    "replacement": replacement,
                     "limit": limit,
                 },
                 "plan": plan,

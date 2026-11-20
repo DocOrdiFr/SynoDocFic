@@ -288,6 +288,7 @@ button:disabled {
 /* ===== SUB-TABS (renommer) ===== */
 .sub-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   border-bottom: 2px solid var(--line);
   padding-bottom: 12px;
